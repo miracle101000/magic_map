@@ -64,8 +64,8 @@ Here’s how to use the `MagicMap` package in your project:
        },
      });
 
-     print(data['user']['name']);  // Outputs: Alice
-     print(data['user']['address']['city']);  // Outputs: New York
+     print(data.user.name);  // Outputs: Alice
+     print(data.user.address.city);  // Outputs: New York
    }
    ```
 
