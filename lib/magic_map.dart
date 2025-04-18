@@ -61,7 +61,7 @@ class _MagicMapImpl {
   _MagicMapImpl(this._map);
 
   /// Recursively wraps nested values.
-  dynamic _wrap(dynamic? value) {
+  dynamic _wrap(dynamic value) {
     if (value is Map<String, dynamic>) {
       return _MagicMapImpl(value);
     } else if (value is List) {
@@ -71,7 +71,7 @@ class _MagicMapImpl {
   }
 
   /// Recursively unwraps nested values into raw Dart types.
-  dynamic _unwrap(dynamic? value) {
+  dynamic _unwrap(dynamic value) {
     if (value is _MagicMapImpl) return value._map;
     if (value is List) return value.map(_unwrap).toList();
     return value;

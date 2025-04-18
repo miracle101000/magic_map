@@ -2,6 +2,8 @@ name: magic_map
 description: A Dart package that allows JavaScript-like dot-access to deeply nested Maps and Lists.
 version: 1.0.0
 homepage: https://github.com/miracle101000/magic_map
+repository: https://github.com/miracle101000/magic_map
+license: MIT
 
 environment:
   sdk: ^3.7.0
