@@ -1,5 +1,4 @@
-```markdown
-# 🔮 MagicMap 
+## 🔮 MagicMap 
 
 [![Pub Version](https://img.shields.io/pub/v/magic_map?color=blue)](https://pub.dev/packages/magic_map)
 [![License: MIT](https://img.shields.io/badge/license-MIT-purple.svg)](https://opensource.org/licenses/MIT)
