@@ -1,30 +1,31 @@
+Let's clean it up to be clearer, more professional, and properly structured. Here's a well-polished version of your `README.md`:
 
 ---
 
 ```markdown
 # 🔮 MagicMap
 
-`MagicMap` is a powerful Dart utility for dynamic, nested map access and mutation with dot-path syntax, glob support, immutable updates, and dynamic field access.
+**MagicMap** is a Dart utility for dynamically accessing and modifying deeply nested maps using dot-path syntax, glob patterns, and immutable updates. It brings readability, convenience, and a dash of magic to your Dart map operations.
 
-> Effortlessly manage deeply nested structures in a readable, type-safe-ish way.
+> Easily traverse and mutate deeply nested data structures with minimal boilerplate.
 
 ---
 
 ## ✨ Features
 
-- ✅ Dot-path access to deeply nested fields
-- ✅ Dynamic creation of nested structures with `set`
-- ✅ Immutable update API with `setImmutable`
-- ✅ Bash-style glob pattern querying (`Glob`)
-- ✅ JSON (de)serialization
-- ✅ Dynamic dot access via `noSuchMethod`
-- ✅ Supports `Map<String, dynamic>` and nested `List`s
+- 🔹 Dot-path access to nested values (`getPath`)
+- 🔹 Dynamically create paths and assign values (`set`)
+- 🔹 Immutable updates (`setImmutable`)
+- 🔹 Glob pattern matching (e.g., `settings.*.theme`)
+- 🔹 JSON (de)serialization support
+- 🔹 Dynamic dot access (`map.person.name`)
+- 🔹 Works with `Map<String, dynamic>` and nested `List`s
 
 ---
 
 ## 📦 Installation
 
-Add this to your `pubspec.yaml`:
+Add `glob` as a dependency in your `pubspec.yaml`:
 
 ```yaml
 dependencies:
@@ -41,160 +42,132 @@ dart pub get
 
 ## 🚀 Quick Start
 
-### 7️⃣ Dynamic Dot Access (`noSuchMethod`)
 ```dart
-final map = MagicMap({'person': {'name': 'Zion'}});
-print(map.person.name); // Output: Zion
+final map = MagicMap({'user': {'name': 'Zion'}});
+print(map.user.name); // Output: Zion
 ```
 
 ---
 
-## 🔍 Usage Examples
+## 📘 Usage Examples
 
 ### 1️⃣ Basic Access
 
 ```dart
 final map = MagicMap({'name': 'Echezona', 'age': 24});
-print(map.getPath('name')); // Output: Echezona
-print(map.getPath('age'));  // Output: 24
+print(map.getPath('name')); // Echezona
+print(map.getPath('age'));  // 24
 ```
 
 ---
 
-### 2️⃣ Setting a Nested Value Dynamically
+### 2️⃣ Set Nested Value
 
 ```dart
 final map = MagicMap({});
 map.set('user.profile.name', 'Miracle');
 
-print(map.getPath('user.profile.name')); // Output: Miracle
-print(map.toJsonString()); // {"user":{"profile":{"name":"Miracle"}}}
+print(map.getPath('user.profile.name')); // Miracle
+print(map.toJsonString());
+// {"user":{"profile":{"name":"Miracle"}}}
 ```
 
 ---
 
-### 3️⃣ Immutable Update (Functional Style)
+### 3️⃣ Immutable Updates
 
 ```dart
-final map1 = MagicMap({'config': {'theme': 'dark'}});
-final map2 = map1.setImmutable('config.theme', 'light');
+final original = MagicMap({'config': {'theme': 'dark'}});
+final updated = original.setImmutable('config.theme', 'light');
 
-print(map1.getPath('config.theme')); // Output: dark
-print(map2.getPath('config.theme')); // Output: light
+print(original.getPath('config.theme')); // dark
+print(updated.getPath('config.theme'));  // light
 ```
 
 ---
 
-### 4️⃣ Glob Matching (Flexible Pattern Matching)
+### 4️⃣ Glob Pattern Matching
 
 ```dart
-final data = {
+final map = MagicMap({
   'settings': {
     'ui': {'theme': 'dark', 'font': 'Roboto'},
-    'notifications': {'email': true, 'sms': false},
+    'notifications': {'email': true, 'sms': false}
   }
-};
-
-final map = MagicMap(data);
+});
 
 final matches = map.getWithGlob('settings.ui.*');
-print(matches); // Output: [dark, Roboto]
+print(matches); // [dark, Roboto]
 ```
 
 ---
 
-### 5️⃣ Using Lists with Glob
+### 5️⃣ List Support with Glob
 
 ```dart
-final data = {
+final map = MagicMap({
   'users': [
     {'name': 'Alice', 'age': 30},
-    {'name': 'Bob', 'age': 25},
+    {'name': 'Bob', 'age': 25}
   ]
-};
-
-final map = MagicMap(data);
+});
 
 final names = map.getWithGlob('users.[*].name');
-print(names); // Output: [Alice, Bob]
+print(names); // [Alice, Bob]
 ```
 
 ---
 
-### 6️⃣ JSON String Input/Output
+### 6️⃣ JSON Serialization
 
 ```dart
 final jsonStr = '{"app":{"version":"1.0.0","debug":false}}';
 final map = MagicMap.fromJsonString(jsonStr);
 
-print(map.getPath('app.version')); // Output: 1.0.0
+print(map.getPath('app.version')); // 1.0.0
 
 map.set('app.debug', true);
-print(map.toJsonString()); 
-// Output: {"app":{"version":"1.0.0","debug":true}}
+print(map.toJsonString());
+// {"app":{"version":"1.0.0","debug":true}}
 ```
 
 ---
 
 ## 🧱 API Overview
 
-### Constructor
-```dart
-MagicMap(dynamic data)
-```
-
-### Get value at dot path
-```dart
-map.getPath('config.theme');
-```
-
-### Set value at dot path
-```dart
-map.set('config.theme', 'light');
-```
-
-### Immutable update
-```dart
-final newMap = map.setImmutable('user.active', true);
-```
-
-### Glob pattern search
-```dart
-map.getWithGlob('settings.ui.*');
-```
-
-### Convert to JSON
-```dart
-final jsonStr = map.toJsonString();
-```
-
-### Create from JSON
-```dart
-final map = MagicMap.fromJsonString(jsonStr);
-```
+| Method | Description |
+|--------|-------------|
+| `MagicMap(data)` | Creates a new MagicMap from a Map or List |
+| `getPath(String path)` | Retrieve value at nested dot path |
+| `set(String path, dynamic value)` | Set value at a nested dot path |
+| `setImmutable(String path, dynamic value)` | Returns new map with the updated path/value |
+| `getWithGlob(String pattern)` | Returns a list of values matching the glob path |
+| `fromJsonString(String json)` | Creates a MagicMap from a JSON string |
+| `toJsonString()` | Serializes the MagicMap to JSON |
 
 ---
 
-## ❗Error Handling
+## ❗ Error Handling
 
-Throws `MagicMapException` on:
+`MagicMapException` is thrown when:
 
-- Accessing missing keys
-- Using `getPath` on non-Map structure
-- Invalid root data for path operations
-
----
-
-## 🔚 License
-
-MIT — use freely, modify wildly, and contribute happily!
+- Accessing a missing key in `getPath`
+- Using `getPath` on a non-Map structure
+- Root structure is invalid for dot-path operations
 
 ---
 
-## 👨‍💻 Author
+## 📜 License
+
+MIT License — free to use, modify, and share.
+
+---
+
+## 👤 Author
 
 **Okolo Miracle Echezona**  
 📧 okolomiracle513@gmail.com  
-🌍 [GitHub](https://github.com/miracle101000) | [LinkedIn](https://www.linkedin.com/in/miracle-okolo-bb2133183)
+🌍 [GitHub](https://github.com/miracle101000) · [LinkedIn](https://www.linkedin.com/in/miracle-okolo-bb2133183)
 
 ---
+```
