@@ -3,7 +3,7 @@ import 'package:magic_map/magic_map.dart';
 void main() {
   final data =
       MagicMap({
-            "user": {"name": null},
+            "user": {"name": "Miracle"},
           })
           as dynamic;
 
