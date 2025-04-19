@@ -2,7 +2,6 @@
 
 [![Pub Version](https://img.shields.io/pub/v/magic_map?color=blue)](https://pub.dev/packages/magic_map)
 [![License: MIT](https://img.shields.io/badge/license-MIT-purple.svg)](https://opensource.org/licenses/MIT)
-[![Dart CI](https://github.com/yourusername/magic_map/actions/workflows/dart.yml/badge.svg)](https://github.com/yourusername/magic_map/actions)
 
 A Dart utility that brings JavaScript-style dot notation to nested Map/List structures. Perfect for handling dynamic JSON data with graceful null safety.
 
