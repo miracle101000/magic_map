@@ -1,152 +1,237 @@
-## 🔮 MagicMap 
+## Dynamic Property Access with MagicMap
 
-[![Pub Version](https://img.shields.io/pub/v/magic_map?color=blue)](https://pub.dev/packages/magic_map)
-[![License: MIT](https://img.shields.io/badge/license-MIT-purple.svg)](https://opensource.org/licenses/MIT)
+MagicMap enables JavaScript-style dynamic property access when cast as `dynamic`. This provides a clean, intuitive syntax for working with nested data structures.
 
-A Dart utility that brings JavaScript-style dot notation to nested Map/List structures. Perfect for handling dynamic JSON data with graceful null safety.
+### Basic Dynamic Access
 
 ```dart
-final data = MagicMap({
-  "user": {
-    "profile": {"name": "Alice", "age": 30},
-    "orders": [{"id": 1}, {"id": 2}]
-  }
-});
+final map1 = MagicMap({
+  'user': {
+    'profile': {'name': 'Alice', 'age': 30},
+    'hobbies': ['reading', 'traveling'],
+  },
+}) as dynamic; // Cast to dynamic for property access
 
-print(data.user.profile.name); // Alice
-print(data.user.orders[0].id); // 1
+// Access nested properties directly
+print(map1.user.profile.name); // Output: Alice
+print(map1.user.hobbies[0]);   // Output: reading
 ```
 
-## 🌟 Features
+### Modifying Values
 
-- 🎯 **Dot-path navigation** - `data.user.profile.name`
-- 🛠 **Dynamic path creation** - `set('config.ui.theme', 'dark')`
-- 🔍 **Glob pattern matching** - `getWithGlob('users.*.email')`
-- 🧊 **Immutable updates** - Create modified copies without side effects
-- 📦 **JSON serialization** - `fromJsonString()`/`toJsonString()`
-- 🛡 **Null-safe access** - Missing keys return `null` instead of throwing
-- 📜 **Detailed errors** - `MagicMapException` with full path context
+```dart
+// Update existing values
+map1.user.profile.name = 'Bob';
+print(map1.user.profile.name); // Output: Bob
 
-## 🚀 Installation
-
-Add to `pubspec.yaml`:
-
-```yaml
-dependencies:
-  magic_map: ^1.0.0
-  glob: ^2.1.2  # Required for glob patterns
+// Add new properties dynamically
+map1.user.profile.city = 'Lagos';
+print(map1.user.profile.city); // Output: Lagos
 ```
 
-Run:
-```bash
-dart pub get
+### Working with Lists
+
+```dart
+// Immutable list update pattern
+map1.user.hobbies = [...?map1.user.hobbies, 'coding'];
+print(map1.user.hobbies); // Output: [reading, traveling, coding]
+
+// Direct index access
+map1.user.hobbies[1] = 'swimming';
+print(map1.user.hobbies); // Output: [reading, swimming, coding]
 ```
 
-## 🧩 Quick Start
+### Immutable Updates
 
-### Basic Usage
+```dart
+// Original values
+print(map1.user.profile.age); // Output: 30
+
+// Create an updated clone
+final clone = map1.setImmutable('user.profile.age', 35);
+print(clone.user.profile.age); // Output: 35
+
+// Original remains unchanged
+print(map1.user.profile.age); // Output: 30
+```
+
+### Important Notes
+
+1. **Dynamic Cast Requirement**:  
+   Must cast to `dynamic` for property access syntax to work:
+   ```dart
+   final map = MagicMap(...) as dynamic;
+   ```
+
+2. **List Modification**:  
+   For immutable list updates, use the spread operator pattern:
+   ```dart
+   map.listField = [...?map.listField, newItem];
+   ```
+
+3. **Type Safety**:  
+   Dynamic access bypasses static type checking. For type-safe code, use `getPath()`/`set()` methods instead.
+
+4. **Performance**:  
+   Dynamic access has minimal overhead compared to traditional Map access methods.
+
+This syntax is particularly useful for:
+- Rapid prototyping
+- Working with complex JSON structures
+- Building dynamic UIs where data paths may change frequently
+- Cases where readability is prioritized over strict typing
+
+## Core API Methods
+
+### 1. Path-Based Access
+
+#### `getPath(String path, [dynamic defaultValue])`
+Get a value using dot-notation path with optional default if path doesn't exist.
+
 ```dart
 final map = MagicMap({
-  'app': {
-    'version': '1.0.0',
-    'settings': {'theme': 'dark'}
-  }
+  'user': {
+    'profile': {'name': 'Alice', 'age': 30},
+    'hobbies': ['reading', 'traveling'],
+  },
 });
 
-// Dot access
-print(map.app.settings.theme); // dark
+// Basic access
+print(map.getPath('user.profile.name')); // Output: Alice
 
-// Path operations
-map.set('app.settings.font', 'Roboto');
-print(map.getPath('app.settings.font')); // Roboto
+// Array index access
+print(map.getPath('user.hobbies.1')); // Output: traveling
 
-// JSON serialization
-final jsonStr = map.toJsonString();
+// Non-existent path with default
+print(map.getPath('user.contact.email', 'N/A')); // Output: N/A
+
+// Nested default
+print(map.getPath('user.profile.address.city', 'Unknown')); // Output: Unknown
 ```
 
-## 📚 Comprehensive Guide
+#### `set(String path, dynamic value)`
+Set values using dot-notation paths, creating intermediate objects as needed.
 
-### 1. Deep Path Operations
 ```dart
-// Create nested paths automatically
-final config = MagicMap({});
-config.set('services.auth.endpoints.login', '/api/login');
+// Update existing
+map.set('user.profile.age', 31);
 
-// Access with null safety
-print(config.services?.auth?.endpoints?.login); // /api/login
+// Create new nested path
+map.set('user.contact.email', 'alice@example.com');
+
+// Array index modification
+map.set('user.hobbies.0', 'coding');
+
+print(map.getPath('user.profile.age')); // Output: 31
+print(map.getPath('user.contact.email')); // Output: alice@example.com
+print(map.getPath('user.hobbies.0')); // Output: coding
 ```
 
-### 2. Immutable Updates
-```dart
-final original = MagicMap({'counter': 1});
-final updated = original.setImmutable('counter', 2);
+### 2. Pattern Matching
 
-print(original.counter); // 1
-print(updated.counter);  // 2
+#### `getWithGlob(String pattern)`
+Find all values matching a glob pattern (`*` wildcards supported).
+
+```dart
+final results = map.getWithGlob('user.*.name');
+print(results); // Output: [Alice]
+
+final allHobbies = map.getWithGlob('user.hobbies.*');
+print(allHobbies); // Output: [coding, traveling]
+
+// Deep wildcard matching
+map.set('company.departments.engineering.manager', 'Bob');
+map.set('company.departments.sales.manager', 'Carol');
+
+final managers = map.getWithGlob('company.departments.*.manager');
+print(managers); // Output: [Bob, Carol]
 ```
 
-### 3. Advanced Pattern Matching
+### 3. Immutable Operations
+
+#### `setImmutable(String path, dynamic value)`
+Create a new MagicMap with the specified modification.
+
 ```dart
-final data = MagicMap({
-  'departments': {
-    'engineering': {
-      'members': ['Alice', 'Bob']
+final updated = map.setImmutable('user.profile.name', 'Alicia');
+
+print(map.getPath('user.profile.name')); // Output: Alice (original unchanged)
+print(updated.getPath('user.profile.name')); // Output: Alicia
+
+// Can chain immutable operations
+final doubleUpdated = map
+  .setImmutable('user.profile.name', 'Alicia')
+  .setImmutable('user.profile.age', 32);
+
+print(doubleUpdated.getPath('user.profile.age')); // Output: 32
+```
+
+### 4. JSON Serialization
+
+#### `toJsonString([Object? Function(dynamic)? replacer, int indent = 0])`
+Convert to formatted JSON string.
+
+```dart
+// Compact JSON
+print(map.toJsonString()); 
+// Output: {"user":{"profile":{"name":"Alice","age":31},"hobbies":["coding","traveling"],"contact":{"email":"alice@example.com"}}}
+
+// Pretty-printed JSON
+print(map.toJsonString(null, 2));
+/*
+Output:
+{
+  "user": {
+    "profile": {
+      "name": "Alice",
+      "age": 31
     },
-    'sales': {
-      'members': ['Charlie']
+    "hobbies": [
+      "coding",
+      "traveling"
+    ],
+    "contact": {
+      "email": "alice@example.com"
     }
   }
-});
-
-// Find all member lists
-print(data.getWithGlob('departments.*.members'));
-// Output: [['Alice', 'Bob'], ['Charlie']]
-```
-
-### 4. Error Handling
-```dart
-try {
-  print(data.getPath('nonexistent.key'));
-} on MagicMapException catch (e) {
-  print(e); // "Missing key 'nonexistent' at path 'nonexistent'"
 }
+*/
+
+// With replacer function
+String replacer(dynamic key, dynamic value) =>
+    value is String ? value.toUpperCase() : value;
+print(map.toJsonString(replacer));
+// Output: {"user":{"profile":{"name":"ALICE","age":31},"hobbies":["CODING","TRAVELING"],"contact":{"email":"ALICE@EXAMPLE.COM"}}}
 ```
 
-## 📖 API Reference
+#### `MagicMap.fromJsonString(String jsonString)`
+Create from JSON string (static method).
 
-| Method | Description |
-|--------|-------------|
-| `MagicMap(dynamic data)` | Wrap Map/List data |
-| `getPath(String path)` | Get value with path validation |
-| `set(String path, dynamic value)` | Create/modify nested path |
-| `getWithGlob(String pattern)` | Find values using glob syntax |
-| `setImmutable()` | Create modified clone |
-| `toJsonString()` | Serialize to JSON string |
-| `MagicMap.fromJsonString()` | Parse from JSON string |
+```dart
+final jsonMap = MagicMap.fromJsonString('''
+{
+  "system": {
+    "version": "1.0.0",
+    "config": {
+      "darkMode": true
+    }
+  }
+}
+''');
 
-## 🤝 Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Submit a PR with tests
-
-See our [contribution guidelines](CONTRIBUTING.md) for details.
-
-## 📜 License
-
-MIT © 2024 Okolo Miracle Echezona
-
+print(jsonMap.getPath('system.config.darkMode')); // Output: true
+print(jsonMap.system.version); // Output: 1.0.0 (with dynamic access)
 ```
 
-Key improvements:
-1. Added GitHub badges for professionalism
-2. Restructured content with clearer hierarchy
-3. Added more practical code examples
-4. Improved visual consistency with emojis
-5. Added contributing section
-6. Made API reference more scannable
-7. Better emphasized key features
-8. Added proper YAML syntax highlighting
-9. Made error handling example more realistic
-10. Added links for navigation (though actual links would need URL targets)
+### Method Comparison Table
+
+| Method | Use Case | Returns | Mutates Original |
+|--------|----------|---------|------------------|
+| `getPath()` | Safe nested access | The value or default | No |
+| `set()` | Deep value updates | void | Yes |
+| `getWithGlob()` | Pattern matching | List<dynamic> | No |
+| `setImmutable()` | Functional updates | New MagicMap | No |
+| `toJsonString()` | Serialization | String | No |
+| `fromJsonString()` | Deserialization | MagicMap | N/A |
+
+These methods provide comprehensive tools for working with complex nested data structures while supporting both mutable and immutable patterns.

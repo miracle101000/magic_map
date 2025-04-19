@@ -1,172 +1,266 @@
 import 'dart:convert';
-import 'package:glob/glob.dart';
 
-/// Custom exception for errors within the MagicMap class.
+// Custom exception for MagicMap errors
 class MagicMapException implements Exception {
   final String message;
-  MagicMapException(this.message);
+  final String? path;
 
+  // Constructor to initialize the exception with a message and an optional path
+  MagicMapException(this.message, [this.path]);
+
+  // Override toString method to format the error message with optional path
   @override
-  String toString() => 'MagicMapException: $message';
+  String toString() =>
+      'MagicMapException: $message${path != null ? ' (at path: $path)' : ''}';
 }
 
-/// MagicMap provides advanced manipulation for deeply nested maps/lists.
-/// It enables dot-path access, immutable updates, glob matching, and JSON handling.
+// The main MagicMap class for working with dynamic nested data
 class MagicMap {
+  // Holds the actual dynamic data, can be Map, List, or any other type
   final dynamic _data;
 
-  /// Constructs a MagicMap instance from any JSON-like structure (Map or List).
-  MagicMap(dynamic data) : _data = _wrap(data);
+  // Constructor that wraps the data into a MagicMap
+  MagicMap([dynamic data]) : _data = _wrap(data ?? <String, dynamic>{});
 
-  /// Wraps Map and List values recursively to support MagicMap features.
+  // Helper method to wrap dynamic values into MagicMap or List
   static dynamic _wrap(dynamic value) {
-    if (value is Map<String, dynamic>) {
-      return _MagicMapImpl(value);
+    if (value is Map) {
+      return _MagicMapImpl(value.cast<String, dynamic>());
     } else if (value is List) {
       return value.map(_wrap).toList();
     }
-    return value;
+    return value; // Return primitive values directly
   }
 
-  /// Unwraps internal structures back to raw Dart types (Map, List, primitive).
+  // Helper method to unwrap MagicMap or List into raw values
   static dynamic _unwrap(dynamic value) {
     if (value is _MagicMapImpl) return value._map;
     if (value is List) return value.map(_unwrap).toList();
     return value;
   }
 
-  /// Returns the raw structure as a Dart Map/List/primitive.
+  // Getter to return the raw unwrapped data
   dynamic get raw => _unwrap(_data);
 
-  /// Sets a value at the specified dot-separated path (e.g., `user.profile.name`).
-  /// Creates intermediate maps if needed.
+  // Method to set a value at a specific path (dot notation)
   void set(String path, dynamic value) {
     final segments = path.split('.');
-    dynamic current = raw;
+    dynamic current = _data;
 
-    if (current is! Map<String, dynamic>) {
-      throw MagicMapException("Root must be a Map for path operations");
+    // Ensure the root data is a Map (or _MagicMapImpl)
+    if (current is! _MagicMapImpl) {
+      throw MagicMapException("Root must be a Map for path operations", path);
     }
 
+    current = current._map;
+
+    // Traverse through the segments and set the value
     for (int i = 0; i < segments.length; i++) {
       final segment = segments[i];
       if (i == segments.length - 1) {
-        current[segment] = value;
+        current[segment] = _wrap(value); // Set the final value
       } else {
-        if (current[segment] is! Map<String, dynamic>) {
+        // Ensure that intermediate segments are Maps
+        if (current[segment] == null ||
+            current[segment] is! Map<String, dynamic>) {
           current[segment] = <String, dynamic>{};
         }
-        current = current[segment];
+        current = current[segment]; // Continue traversing
       }
     }
   }
 
-  /// Gets a value at the specified dot-separated path.
-  /// Throws a detailed error if the key is missing or the path is invalid.
-  dynamic getPath(String path) {
-    final segments = path.split('.');
-    dynamic current = raw;
-    final pathSegments = [];
+  // Method to get the value at a specific path with a default fallback
+  dynamic getPath(String path, [dynamic defaultValue]) {
+    try {
+      final segments = path.split('.');
+      dynamic current = _data;
 
-    for (final segment in segments) {
-      pathSegments.add(segment);
-      if (current is Map<String, dynamic>) {
-        if (!current.containsKey(segment)) {
-          throw MagicMapException(
-            "Missing key '$segment' at path '${pathSegments.join('.')}'",
-          );
+      // Traverse through each segment of the path
+      for (final segment in segments) {
+        if (current is _MagicMapImpl) {
+          current = current[segment];
+        } else if (current is Map) {
+          current = current[segment];
+        } else {
+          return defaultValue; // Return default value if path doesn't exist
         }
-        current = current[segment];
-      } else {
-        throw MagicMapException(
-          "Path segment '${pathSegments.join('.')}' is not a Map",
-        );
+
+        if (current == null) return defaultValue;
       }
+      return current; // Return the value if found
+    } catch (_) {
+      return defaultValue; // Return default in case of any error
     }
-    return current;
   }
 
-  /// Finds values using a bash-style glob pattern across all nested paths.
-  /// Example: `user.*.name` or `settings.**.enabled`
+  // Method to retrieve values matching a glob pattern (e.g., "*")
   List<dynamic> getWithGlob(String pattern) {
-    final glob = Glob(pattern);
-    final results = [];
-    _collectMatches(raw, [], glob, results);
-    return results.map(_wrap).toList();
+    final results = <dynamic>[];
+    _globSearch(_data, pattern.split('.'), 0, results);
+    return results;
   }
 
-  /// Helper method to recursively traverse the structure and collect glob matches.
-  void _collectMatches(
+  // Recursive helper method to perform glob search
+  void _globSearch(
     dynamic current,
-    List<String> path,
-    Glob glob,
+    List<String> pattern,
+    int depth,
     List<dynamic> results,
   ) {
-    if (current is Map<String, dynamic>) {
-      current.forEach((key, value) {
-        final newPath = List.of(path)..add(key);
-        if (glob.matches(newPath.join('.'))) {
-          results.add(value);
+    if (depth >= pattern.length) {
+      results.add(current); // If pattern is fully matched, add to results
+      return;
+    }
+
+    final segment = pattern[depth];
+
+    if (current is _MagicMapImpl) {
+      current = current._map;
+    }
+
+    if (current is Map) {
+      if (segment == '*') {
+        // If the segment is "*", search all values at this depth
+        for (final value in current.values) {
+          _globSearch(value, pattern, depth + 1, results);
         }
-        _collectMatches(value, newPath, glob, results);
-      });
+      } else if (current.containsKey(segment)) {
+        // If the segment matches a key, recurse on it
+        _globSearch(current[segment], pattern, depth + 1, results);
+      }
     } else if (current is List) {
-      for (int i = 0; i < current.length; i++) {
-        final newPath = List.of(path)..add('[$i]');
-        _collectMatches(current[i], newPath, glob, results);
+      if (segment == '*') {
+        // If the segment is "*", search all items in the list
+        for (final item in current) {
+          _globSearch(item, pattern, depth + 1, results);
+        }
+      } else if (int.tryParse(segment) != null &&
+          int.parse(segment) < current.length) {
+        // If it's an index, recurse on the item at that index
+        _globSearch(current[int.parse(segment)], pattern, depth + 1, results);
       }
     }
   }
 
-  /// Returns a new MagicMap with the value updated at [path], leaving the original unmodified.
+  // Method to perform immutable updates by deep cloning the data
   MagicMap setImmutable(String path, dynamic value) {
-    final cloned = jsonDecode(jsonEncode(raw)); // Deep clone
-    final temp = MagicMap(cloned);
-    temp.set(path, value);
-    return temp;
+    final newData = _deepClone(_data); // Create a deep copy of the data
+    final tempMap = MagicMap(newData);
+    tempMap.set(path, value); // Set the new value in the cloned data
+    return tempMap;
   }
 
-  /// Creates a MagicMap from a JSON string.
-  factory MagicMap.fromJsonString(String jsonString) {
-    return MagicMap(jsonDecode(jsonString));
+  // Helper method to deep clone the data recursively
+  dynamic _deepClone(dynamic value) {
+    if (value is _MagicMapImpl) {
+      final newMap = <String, dynamic>{};
+      value._map.forEach((key, val) {
+        newMap[key] = _deepClone(val); // Recursively clone each value
+      });
+      return _MagicMapImpl(newMap);
+    } else if (value is List) {
+      return value.map(_deepClone).toList(); // Clone each list item
+    } else if (value is Map) {
+      final newMap = <String, dynamic>{};
+      value.forEach((key, val) {
+        newMap[key.toString()] = _deepClone(val); // Clone the key-value pair
+      });
+      return _MagicMapImpl(newMap);
+    }
+    return value; // Return primitive values as-is
   }
 
-  /// Serializes the MagicMap to a JSON string.
-  String toJsonString() {
-    return jsonEncode(raw);
+  // Method to convert the MagicMap to a JSON string
+  String toJsonString([Object? Function(dynamic)? replacer, int indent = 0]) {
+    final encoder =
+        indent > 0
+            ? JsonEncoder.withIndent(' ' * indent, replacer)
+            : JsonEncoder(replacer);
+    return encoder.convert(raw); // Convert the raw data to JSON
   }
 
-  /// Forwards method/property access to the wrapped structure.
+  // Static method to create a MagicMap from a JSON string
+  static MagicMap fromJsonString(String jsonString) {
+    return MagicMap(jsonDecode(jsonString)); // Decode and wrap the JSON
+  }
+
+  // Operator override to get a value using the bracket notation (e.g., magicMap['key'])
+  dynamic operator [](String key) {
+    if (_data is _MagicMapImpl) {
+      return _data[key]; // Access value from _MagicMapImpl
+    }
+    return null; // Return null if not a valid map
+  }
+
+  // Operator override to set a value using bracket notation (e.g., magicMap['key'] = value)
+  void operator []=(String key, dynamic value) {
+    if (_data is _MagicMapImpl) {
+      _data[key] = value; // Set value in _MagicMapImpl
+    } else {
+      throw MagicMapException("Cannot set value on non-map root");
+    }
+  }
+
+  // Fallback for undefined method calls (e.g., dynamic field access like magicMap.someKey)
   @override
   dynamic noSuchMethod(Invocation invocation) {
-    return _data.noSuchMethod(invocation);
+    final name = _symbolToString(invocation.memberName);
+    if (invocation.isGetter) {
+      return _data[name]; // Return value for getter
+    }
+
+    if (invocation.isSetter) {
+      final key = name.replaceAll('=', '');
+      _data[key] = invocation.positionalArguments.first; // Set value for setter
+      return null;
+    }
+
+    return super.noSuchMethod(invocation); // Fallback to default behavior
   }
+
+  // Helper to convert a symbol to string (used for dynamic field access)
+  static String _symbolToString(Symbol symbol) {
+    return symbol.toString().replaceAll('Symbol("', '').replaceAll('")', '');
+  }
+
+  // Override toString to provide a string representation of the MagicMap
+  @override
+  String toString() => 'MagicMap($_data)';
 }
 
-/// Private class that supports dynamic property access to a wrapped Map.
+// Internal class to represent a wrapped Map with additional capabilities
 class _MagicMapImpl {
   final Map<String, dynamic> _map;
 
   _MagicMapImpl(this._map);
 
-  /// Recursively wraps nested values.
+  // Operator override to access values using bracket notation
+  dynamic operator [](String key) => _wrap(_map[key]);
+
+  // Operator override to set values using bracket notation
+  void operator []=(String key, dynamic value) {
+    _map[key] = _unwrap(value);
+  }
+
+  // Helper method to wrap dynamic values into _MagicMapImpl or List
   dynamic _wrap(dynamic value) {
-    if (value is Map<String, dynamic>) return _MagicMapImpl(value);
+    if (value is Map) return _MagicMapImpl(value.cast<String, dynamic>());
     if (value is List) return value.map(_wrap).toList();
     return value;
   }
 
-  /// Recursively unwraps nested values back to native Dart types.
+  // Helper method to unwrap MagicMapImpl into raw data
   dynamic _unwrap(dynamic value) {
     if (value is _MagicMapImpl) return value._map;
     if (value is List) return value.map(_unwrap).toList();
     return value;
   }
 
-  /// Supports dot notation access and assignment using Dart’s dynamic features.
+  // Fallback for undefined method calls
   @override
   dynamic noSuchMethod(Invocation invocation) {
-    final name = _symbolToString(invocation.memberName);
+    final name = MagicMap._symbolToString(invocation.memberName);
 
     if (invocation.isGetter) {
       return _wrap(_map[name]);
@@ -181,8 +275,7 @@ class _MagicMapImpl {
     return super.noSuchMethod(invocation);
   }
 
-  /// Converts Dart Symbol to plain String.
-  String _symbolToString(Symbol symbol) {
-    return symbol.toString().split('"')[1];
-  }
+  // Override toString to represent the map's string
+  @override
+  String toString() => _map.toString();
 }
