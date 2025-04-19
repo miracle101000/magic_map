@@ -1,111 +1,200 @@
-## `MagicMap` Flutter Package
-
-The `MagicMap` package provides a convenient way to access nested maps using dot notation, mimicking JavaScript-style object access. This package aims to simplify the way you interact with dynamic data structures like JSON in Dart and Flutter.
 
 ---
 
-### Featuress
-- Access nested maps using dot notation.
-- Supports dynamic property access.
-- Simple, clean API for easier handling of complex data structures.
+```markdown
+# 🔮 MagicMap
+
+`MagicMap` is a powerful Dart utility for dynamic, nested map access and mutation with dot-path syntax, glob support, immutable updates, and dynamic field access.
+
+> Effortlessly manage deeply nested structures in a readable, type-safe-ish way.
 
 ---
 
-### Installation
+## ✨ Features
 
-To add the `MagicMap` package to your Flutter project, follow these steps:
-
-1. **Add the Dependency**: 
-   In your `pubspec.yaml` file, add the package under `dependencies`:
-
-   ```yaml
-   dependencies:
-     flutter:
-       sdk: flutter
-     magic_map:
-       path: ../magic_map  # Adjust the path to the local package location
-   ```
-
-2. **Get the Packages**:
-   Run the following command in your project directory to fetch the package:
-
-   ```bash
-   flutter pub get
-   ```
+- ✅ Dot-path access to deeply nested fields
+- ✅ Dynamic creation of nested structures with `set`
+- ✅ Immutable update API with `setImmutable`
+- ✅ Bash-style glob pattern querying (`Glob`)
+- ✅ JSON (de)serialization
+- ✅ Dynamic dot access via `noSuchMethod`
+- ✅ Supports `Map<String, dynamic>` and nested `List`s
 
 ---
 
-### Usage
+## 📦 Installation
 
-Here’s how to use the `MagicMap` package in your project:
+Add this to your `pubspec.yaml`:
 
-1. **Import the Package**:
+```yaml
+dependencies:
+  glob: ^2.1.2
+```
 
-   In your Dart file, import the `MagicMap` package:
+Then run:
 
-   ```dart
-   import 'package:magic_map/magic_map.dart';
-   ```
-
-2. **Create and Use `MagicMap`**:
-
-   The `MagicMap` class allows you to access data in a map using dot notation.
-
-   ```dart
-   void main() {
-     final data = MagicMap({
-       'user': {
-         'name': 'Alice',
-         'age': 30,
-         'address': {
-           'city': 'New York',
-           'zip': '10001',
-         },
-       },
-     });
-
-     print(data.user.name);  // Outputs: Alice
-     print(data.user.address.city);  // Outputs: New York
-   }
-   ```
+```bash
+dart pub get
+```
 
 ---
 
-### API Reference
+## 🚀 Quick Start
 
-- **MagicMap(Map<String, dynamic> data)**:  
-  The constructor accepts a map and allows for dynamic access to nested keys using dot notation.
-
-- **operator []**:  
-  Allows accessing values within the map using the bracket syntax, e.g., `data['key']`.
-
----
-
-### Contributing
-
-We welcome contributions to this project! To contribute:
-
-1. Fork the repository.
-2. Create a new branch (`git checkout -b feature-name`).
-3. Make your changes.
-4. Commit your changes (`git commit -am 'Add new feature'`).
-5. Push to the branch (`git push origin feature-name`).
-6. Open a pull request.
-
-Please ensure that you follow the Dart code style and include tests for any new functionality.
+### 7️⃣ Dynamic Dot Access (`noSuchMethod`)
+```dart
+final map = MagicMap({'person': {'name': 'Zion'}});
+print(map.person.name); // Output: Zion
+```
 
 ---
 
-### License
+## 🔍 Usage Examples
 
-This package is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
+### 1️⃣ Basic Access
+
+```dart
+final map = MagicMap({'name': 'Echezona', 'age': 24});
+print(map.getPath('name')); // Output: Echezona
+print(map.getPath('age'));  // Output: 24
+```
 
 ---
 
-### Acknowledgments
+### 2️⃣ Setting a Nested Value Dynamically
 
-- This package is inspired by JavaScript's object access syntax and aims to bring that convenience to Dart.
-- Special thanks to the Flutter and Dart communities for providing a great ecosystem.
+```dart
+final map = MagicMap({});
+map.set('user.profile.name', 'Miracle');
+
+print(map.getPath('user.profile.name')); // Output: Miracle
+print(map.toJsonString()); // {"user":{"profile":{"name":"Miracle"}}}
+```
 
 ---
 
+### 3️⃣ Immutable Update (Functional Style)
+
+```dart
+final map1 = MagicMap({'config': {'theme': 'dark'}});
+final map2 = map1.setImmutable('config.theme', 'light');
+
+print(map1.getPath('config.theme')); // Output: dark
+print(map2.getPath('config.theme')); // Output: light
+```
+
+---
+
+### 4️⃣ Glob Matching (Flexible Pattern Matching)
+
+```dart
+final data = {
+  'settings': {
+    'ui': {'theme': 'dark', 'font': 'Roboto'},
+    'notifications': {'email': true, 'sms': false},
+  }
+};
+
+final map = MagicMap(data);
+
+final matches = map.getWithGlob('settings.ui.*');
+print(matches); // Output: [dark, Roboto]
+```
+
+---
+
+### 5️⃣ Using Lists with Glob
+
+```dart
+final data = {
+  'users': [
+    {'name': 'Alice', 'age': 30},
+    {'name': 'Bob', 'age': 25},
+  ]
+};
+
+final map = MagicMap(data);
+
+final names = map.getWithGlob('users.[*].name');
+print(names); // Output: [Alice, Bob]
+```
+
+---
+
+### 6️⃣ JSON String Input/Output
+
+```dart
+final jsonStr = '{"app":{"version":"1.0.0","debug":false}}';
+final map = MagicMap.fromJsonString(jsonStr);
+
+print(map.getPath('app.version')); // Output: 1.0.0
+
+map.set('app.debug', true);
+print(map.toJsonString()); 
+// Output: {"app":{"version":"1.0.0","debug":true}}
+```
+
+---
+
+## 🧱 API Overview
+
+### Constructor
+```dart
+MagicMap(dynamic data)
+```
+
+### Get value at dot path
+```dart
+map.getPath('config.theme');
+```
+
+### Set value at dot path
+```dart
+map.set('config.theme', 'light');
+```
+
+### Immutable update
+```dart
+final newMap = map.setImmutable('user.active', true);
+```
+
+### Glob pattern search
+```dart
+map.getWithGlob('settings.ui.*');
+```
+
+### Convert to JSON
+```dart
+final jsonStr = map.toJsonString();
+```
+
+### Create from JSON
+```dart
+final map = MagicMap.fromJsonString(jsonStr);
+```
+
+---
+
+## ❗Error Handling
+
+Throws `MagicMapException` on:
+
+- Accessing missing keys
+- Using `getPath` on non-Map structure
+- Invalid root data for path operations
+
+---
+
+## 🔚 License
+
+MIT — use freely, modify wildly, and contribute happily!
+
+---
+
+## 👨‍💻 Author
+
+**Okolo Miracle Echezona**  
+📧 okolomiracle513@gmail.com  
+🌍 [GitHub](https://github.com/miracle101000) | [LinkedIn](https://www.linkedin.com/in/miracle-okolo-bb2133183)
+
+---
