@@ -1,22 +1,22 @@
 # magic_map
 
-JavaScript-style dot access for deeply nested Dart maps and lists.
+Safe, path-based access to nested Dart maps and lists. Read deep values
+with a default, write deep values without building the intermediate
+containers yourself, query with glob patterns, make immutable updates, and
+round-trip JSON. Think lodash `get` / `set` for Dart.
 
 ```dart
-final data = MagicMap({
-  'user': {
-    'profile': {'name': 'Alice', 'age': 30},
-    'hobbies': ['reading', 'traveling'],
-  },
-});
+final config = MagicMap.fromJsonString(jsonText);
 
-final d = data as dynamic;
-print(d.user.profile.name);      // Alice
-d.user.hobbies[1] = 'swimming';  // writes through
-d.user.profile.city = 'Lagos';   // adds a key
+config.getPath('server.port', 8080);            // value or default, never throws
+config.getPath('users[0].email', 'unknown');    // list indices in dot or bracket form
+config.set('server.tls.cert', '/etc/cert.pem'); // creates 'tls' on the way
+config.set('users[2].name', 'Carol');           // appends a new user map
+config.getWithGlob('features.*.enabled');       // every feature's flag
+config.hasPath('server.tls');                   // true
 
-print(data.getPath('user.hobbies[1]')); // swimming
-print(data.raw);                        // plain Map<String, dynamic>
+final next = config.setImmutable('server.port', 9090); // config unchanged
+print(next.toJsonString(indent: 2));
 ```
 
 ## How it works
@@ -24,53 +24,22 @@ print(data.raw);                        // plain Map<String, dynamic>
 `MagicMap` and `MagicList` are *views* over ordinary `Map<String, dynamic>`
 and `List<dynamic>` objects.
 
-- Reading a nested map or list returns another view over the **same** data.
-- Every write, through dot access, `[]=`, `set()` or the `List` API, goes
-  straight to the underlying collection.
-- `raw` returns that underlying collection at any level.
 - The constructor **deep-copies** its input into plain containers and converts
   keys to strings. The map you pass in is never modified, and writes never
   fail with type errors no matter how narrowly the original literal was typed.
+- Reading a nested map or list returns another view over the **same** data,
+  so every method below works at any depth.
+- Every write goes straight to the underlying collection. `raw` returns that
+  collection at any level.
 - Values you assign are deep-copied too, so later changes to the original
   object do not leak into the map.
 
-## Dynamic access
-
-Cast to `dynamic` to use dot syntax. Static typing cannot know your keys, so
-this is required for property-style access.
-
-```dart
-final d = MagicMap({'user': {'name': 'Alice', 'tags': ['a']}}) as dynamic;
-
-d.user.name;              // Alice
-d.user.missing;           // null
-d.user.name = 'Bob';      // update
-d.user.email = 'b@x.io';  // insert
-d.user.tags.add('b');     // MagicList is a real List
-d.user.tags[0] = 'z';
-d.user.tags = [...?d.user.tags, 'c'];
-for (final tag in d.user.tags) { /* ... */ }
-```
-
-Notes:
-
-- A missing key reads as `null`, so `d.missing.deeper` throws just like
-  JavaScript would. Use `getPath` when the shape is uncertain.
-- Member names that exist on `MagicMap` itself (`raw`, `set`, `getPath`,
-  `clone`, `toJson`, ...) cannot be read with dot syntax. Use `d['set']` or
-  `getPath('set')` for such keys.
-- Dot access relies on `noSuchMethod`, which needs symbol names at runtime.
-  It works on the Dart VM and Flutter mobile/desktop. In minified web builds
-  symbol names may be mangled; prefer the path API there.
-
-## Path API
-
-All of these are available on both `MagicMap` and `MagicList`, including
-nested views, and work without any `dynamic` cast.
+## Paths
 
 Paths use dot notation with optional bracket indices. `user.tags.0`,
-`user.tags[0]` and `users[1].name` are equivalent forms. Escape a literal dot
-or bracket inside a key with a backslash: `r'a\.b'`.
+`user.tags[0]` and `users[1].name` are all valid and equivalent. Escape a
+literal dot or bracket inside a key with a backslash: `r'a\.b'`. On a map, a
+numeric segment is a key; on a list it is an index.
 
 ### `getPath(String path, [dynamic defaultValue])`
 
@@ -180,12 +149,58 @@ map.toJsonString(
 
 Invalid JSON or a root of the wrong type throws `MagicMapException`.
 
+## Lists
+
+Nested lists come back as `MagicList`, a real `List` that writes through to
+the underlying data. Iteration, `length`, `add`, `insert`, `removeAt`,
+`sort`, spreads and the rest of the `List` API all work, and elements that
+are maps or lists are returned as views.
+
+```dart
+final hobbies = map.getPath('user.hobbies'); // MagicList
+hobbies.add('coding');
+hobbies[0] = 'reading';
+for (final h in hobbies) { /* ... */ }
+```
+
+`MagicList` has the same path methods as `MagicMap`, so
+`list.getPath('0.name')` and `list.getWithGlob('*.id')` work.
+
+## Bonus: dynamic dot access
+
+If you cast a `MagicMap` to `dynamic`, you can read and write keys with
+JavaScript-style dot syntax. It is convenient for prototyping and scripts.
+
+```dart
+final d = MagicMap({'user': {'name': 'Alice', 'tags': ['a']}}) as dynamic;
+
+d.user.name;              // Alice
+d.user.missing;           // null
+d.user.name = 'Bob';      // update
+d.user.email = 'b@x.io';  // insert
+d.user.tags.add('b');     // writes through
+d.user.tags = [...?d.user.tags, 'c'];
+```
+
+Be aware of the trade-offs before using it in application code:
+
+- The `dynamic` cast gives up autocomplete and static checking. The path API
+  above needs no cast.
+- A missing key reads as `null`, so `d.missing.deeper` throws just like
+  JavaScript would. Use `getPath` when the shape is uncertain.
+- Member names that exist on `MagicMap` itself (`raw`, `set`, `getPath`,
+  `clone`, `toJson`, ...) cannot be read with dot syntax. Use `d['set']` or
+  `getPath('set')` for such keys.
+- Dot access relies on `noSuchMethod`, which needs symbol names at runtime.
+  It works on the Dart VM and Flutter mobile/desktop. In minified web builds
+  symbol names may be mangled; prefer the path API there.
+
 ## Equality and printing
 
 Two views are `==` when they wrap the same underlying collection, so
-`d.user == d.user` is `true`. Two separately constructed maps with the same
-content are not equal; compare `raw` for structural checks. `toString()`
-prints like the plain collection would.
+`map.getPath('user') == map.getPath('user')` is `true`. Two separately
+constructed maps with the same content are not equal; compare `raw` for
+structural checks. `toString()` prints like the plain collection would.
 
 ## Method summary
 

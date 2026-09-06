@@ -1,5 +1,5 @@
 name: magic_map
-description: A Dart package that allows JavaScript-like dot-access to deeply nested Maps and Lists.
+description: Path-based access to nested Dart maps and lists - safe deep reads, deep writes, glob queries, immutable updates and JSON helpers, plus optional dot access.
 version: 2.0.0
 homepage: https://github.com/miracle101000/magic_map
 repository: https://github.com/miracle101000/magic_map
