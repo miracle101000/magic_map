@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.1] - 2026-09-06
+
+### Changed
+
+- README and package description now lead with the path API (`getPath`,
+  `set`, `getWithGlob`, `setImmutable`, JSON helpers) and present dynamic
+  dot access as an optional extra with its trade-offs listed. No code
+  changes.
+
+---
+
 ## [2.0.0] - 2026-09-06
 
 Internal rewrite around one invariant: the underlying data is always plain
