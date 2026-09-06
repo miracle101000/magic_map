@@ -1,237 +1,204 @@
-## Dynamic Property Access with MagicMap
+# magic_map
 
-MagicMap enables JavaScript-style dynamic property access when cast as `dynamic`. This provides a clean, intuitive syntax for working with nested data structures.
-
-### Basic Dynamic Access
+JavaScript-style dot access for deeply nested Dart maps and lists.
 
 ```dart
-final map1 = MagicMap({
-  'user': {
-    'profile': {'name': 'Alice', 'age': 30},
-    'hobbies': ['reading', 'traveling'],
-  },
-}) as dynamic; // Cast to dynamic for property access
-
-// Access nested properties directly
-print(map1.user.profile.name); // Output: Alice
-print(map1.user.hobbies[0]);   // Output: reading
-```
-
-### Modifying Values
-
-```dart
-// Update existing values
-map1.user.profile.name = 'Bob';
-print(map1.user.profile.name); // Output: Bob
-
-// Add new properties dynamically
-map1.user.profile.city = 'Lagos';
-print(map1.user.profile.city); // Output: Lagos
-```
-
-### Working with Lists
-
-```dart
-// Immutable list update pattern
-map1.user.hobbies = [...?map1.user.hobbies, 'coding'];
-print(map1.user.hobbies); // Output: [reading, traveling, coding]
-
-// Direct index access
-map1.user.hobbies[1] = 'swimming';
-print(map1.user.hobbies); // Output: [reading, swimming, coding]
-```
-
-### Immutable Updates
-
-```dart
-// Original values
-print(map1.user.profile.age); // Output: 30
-
-// Create an updated clone
-final clone = map1.setImmutable('user.profile.age', 35);
-print(clone.user.profile.age); // Output: 35
-
-// Original remains unchanged
-print(map1.user.profile.age); // Output: 30
-```
-
-### Important Notes
-
-1. **Dynamic Cast Requirement**:  
-   Must cast to `dynamic` for property access syntax to work:
-   ```dart
-   final map = MagicMap(...) as dynamic;
-   ```
-
-2. **List Modification**:  
-   For immutable list updates, use the spread operator pattern:
-   ```dart
-   map.listField = [...?map.listField, newItem];
-   ```
-
-3. **Type Safety**:  
-   Dynamic access bypasses static type checking. For type-safe code, use `getPath()`/`set()` methods instead.
-
-4. **Performance**:  
-   Dynamic access has minimal overhead compared to traditional Map access methods.
-
-This syntax is particularly useful for:
-- Rapid prototyping
-- Working with complex JSON structures
-- Building dynamic UIs where data paths may change frequently
-- Cases where readability is prioritized over strict typing
-
-## Core API Methods
-
-### 1. Path-Based Access
-
-#### `getPath(String path, [dynamic defaultValue])`
-Get a value using dot-notation path with optional default if path doesn't exist.
-
-```dart
-final map = MagicMap({
+final data = MagicMap({
   'user': {
     'profile': {'name': 'Alice', 'age': 30},
     'hobbies': ['reading', 'traveling'],
   },
 });
 
-// Basic access
-print(map.getPath('user.profile.name')); // Output: Alice
+final d = data as dynamic;
+print(d.user.profile.name);      // Alice
+d.user.hobbies[1] = 'swimming';  // writes through
+d.user.profile.city = 'Lagos';   // adds a key
 
-// Array index access
-print(map.getPath('user.hobbies.1')); // Output: traveling
-
-// Non-existent path with default
-print(map.getPath('user.contact.email', 'N/A')); // Output: N/A
-
-// Nested default
-print(map.getPath('user.profile.address.city', 'Unknown')); // Output: Unknown
+print(data.getPath('user.hobbies[1]')); // swimming
+print(data.raw);                        // plain Map<String, dynamic>
 ```
 
-#### `set(String path, dynamic value)`
-Set values using dot-notation paths, creating intermediate objects as needed.
+## How it works
+
+`MagicMap` and `MagicList` are *views* over ordinary `Map<String, dynamic>`
+and `List<dynamic>` objects.
+
+- Reading a nested map or list returns another view over the **same** data.
+- Every write, through dot access, `[]=`, `set()` or the `List` API, goes
+  straight to the underlying collection.
+- `raw` returns that underlying collection at any level.
+- The constructor **deep-copies** its input into plain containers and converts
+  keys to strings. The map you pass in is never modified, and writes never
+  fail with type errors no matter how narrowly the original literal was typed.
+- Values you assign are deep-copied too, so later changes to the original
+  object do not leak into the map.
+
+## Dynamic access
+
+Cast to `dynamic` to use dot syntax. Static typing cannot know your keys, so
+this is required for property-style access.
 
 ```dart
-// Update existing
+final d = MagicMap({'user': {'name': 'Alice', 'tags': ['a']}}) as dynamic;
+
+d.user.name;              // Alice
+d.user.missing;           // null
+d.user.name = 'Bob';      // update
+d.user.email = 'b@x.io';  // insert
+d.user.tags.add('b');     // MagicList is a real List
+d.user.tags[0] = 'z';
+d.user.tags = [...?d.user.tags, 'c'];
+for (final tag in d.user.tags) { /* ... */ }
+```
+
+Notes:
+
+- A missing key reads as `null`, so `d.missing.deeper` throws just like
+  JavaScript would. Use `getPath` when the shape is uncertain.
+- Member names that exist on `MagicMap` itself (`raw`, `set`, `getPath`,
+  `clone`, `toJson`, ...) cannot be read with dot syntax. Use `d['set']` or
+  `getPath('set')` for such keys.
+- Dot access relies on `noSuchMethod`, which needs symbol names at runtime.
+  It works on the Dart VM and Flutter mobile/desktop. In minified web builds
+  symbol names may be mangled; prefer the path API there.
+
+## Path API
+
+All of these are available on both `MagicMap` and `MagicList`, including
+nested views, and work without any `dynamic` cast.
+
+Paths use dot notation with optional bracket indices. `user.tags.0`,
+`user.tags[0]` and `users[1].name` are equivalent forms. Escape a literal dot
+or bracket inside a key with a backslash: `r'a\.b'`.
+
+### `getPath(String path, [dynamic defaultValue])`
+
+Returns the value at `path`, or `defaultValue` when the path does not exist
+or holds `null`. Maps and lists come back as `MagicMap` / `MagicList` views.
+Never throws.
+
+```dart
+map.getPath('user.profile.name');            // Alice
+map.getPath('user.hobbies[1]');              // traveling
+map.getPath('user.contact.email', 'N/A');    // N/A
+map.getPath('user.profile').set('age', 31);  // views are writable
+```
+
+### `hasPath(String path)`
+
+`true` when the path exists, even if its value is `null`.
+
+### `set(String path, dynamic value)`
+
+Stores `value`, creating intermediate containers as needed. A missing
+intermediate becomes a list when the next segment is an integer, otherwise a
+map. On a list, an index equal to the current length appends.
+
+```dart
 map.set('user.profile.age', 31);
-
-// Create new nested path
-map.set('user.contact.email', 'alice@example.com');
-
-// Array index modification
-map.set('user.hobbies.0', 'coding');
-
-print(map.getPath('user.profile.age')); // Output: 31
-print(map.getPath('user.contact.email')); // Output: alice@example.com
-print(map.getPath('user.hobbies.0')); // Output: coding
+map.set('user.contact.email', 'alice@example.com'); // creates 'contact'
+map.set('user.hobbies.0', 'coding');                // replaces index 0
+map.set('user.hobbies.2', 'chess');                 // appends
+map.set('user.friends[0].name', 'Bob');             // creates a list of maps
 ```
 
-### 2. Pattern Matching
+It throws `MagicMapException` instead of corrupting data when:
 
-#### `getWithGlob(String pattern)`
-Find all values matching a glob pattern (`*` wildcards supported).
+- the path is empty,
+- a list index is out of range or not an integer,
+- the path tries to descend into a scalar (for example `user.name.first`
+  when `user.name` is a `String`).
+
+### `removePath(String path)`
+
+Removes the key or list item at `path` and returns it, or `null` if nothing
+was there.
+
+### `getWithGlob(String pattern)`
+
+Returns every value whose path matches the pattern, in traversal order.
+
+| Syntax           | Meaning                                  |
+| ---------------- | ---------------------------------------- |
+| `*` (segment)    | any key or index at that level           |
+| `[*]`            | same as `*`, for list-style paths        |
+| `**`             | any number of levels, including none     |
+| `*` in a segment | any run of characters (`hob*`)           |
+| `?` in a segment | one character (`s?les`)                  |
 
 ```dart
-final results = map.getWithGlob('user.*.name');
-print(results); // Output: [Alice]
-
-final allHobbies = map.getWithGlob('user.hobbies.*');
-print(allHobbies); // Output: [coding, traveling]
-
-// Deep wildcard matching
-map.set('company.departments.engineering.manager', 'Bob');
-map.set('company.departments.sales.manager', 'Carol');
-
-final managers = map.getWithGlob('company.departments.*.manager');
-print(managers); // Output: [Bob, Carol]
+map.getWithGlob('user.*.name');                      // [Alice]
+map.getWithGlob('user.hobbies.*');                   // [reading, traveling]
+map.getWithGlob('company.departments.*.manager');    // [Bob, Carol]
+map.getWithGlob('items[*].id');                      // [1, 2]
+map.getWithGlob('**.manager');                       // any depth
 ```
 
-### 3. Immutable Operations
+### `setImmutable(String path, dynamic value)` and `clone()`
 
-#### `setImmutable(String path, dynamic value)`
-Create a new MagicMap with the specified modification.
+`clone()` returns an independent deep copy. `setImmutable` is
+`clone()..set(path, value)`: the original is untouched and the copy is
+returned, so calls chain.
 
 ```dart
-final updated = map.setImmutable('user.profile.name', 'Alicia');
-
-print(map.getPath('user.profile.name')); // Output: Alice (original unchanged)
-print(updated.getPath('user.profile.name')); // Output: Alicia
-
-// Can chain immutable operations
-final doubleUpdated = map
-  .setImmutable('user.profile.name', 'Alicia')
-  .setImmutable('user.profile.age', 32);
-
-print(doubleUpdated.getPath('user.profile.age')); // Output: 32
+final updated = map
+    .setImmutable('user.profile.name', 'Alicia')
+    .setImmutable('user.profile.age', 32);
 ```
 
-### 4. JSON Serialization
-
-#### `toJsonString([Object? Function(dynamic)? replacer, int indent = 0])`
-Convert to formatted JSON string.
+## JSON
 
 ```dart
-// Compact JSON
-print(map.toJsonString()); 
-// Output: {"user":{"profile":{"name":"Alice","age":31},"hobbies":["coding","traveling"],"contact":{"email":"alice@example.com"}}}
+map.toJsonString();                 // compact
+map.toJsonString(indent: 2);        // pretty printed
+jsonEncode(map);                    // also works: MagicMap/MagicList have toJson()
 
-// Pretty-printed JSON
-print(map.toJsonString(null, 2));
-/*
-Output:
-{
-  "user": {
-    "profile": {
-      "name": "Alice",
-      "age": 31
-    },
-    "hobbies": [
-      "coding",
-      "traveling"
-    ],
-    "contact": {
-      "email": "alice@example.com"
-    }
-  }
-}
-*/
-
-// With replacer function
-String replacer(dynamic key, dynamic value) =>
-    value is String ? value.toUpperCase() : value;
-print(map.toJsonString(replacer));
-// Output: {"user":{"profile":{"name":"ALICE","age":31},"hobbies":["CODING","TRAVELING"],"contact":{"email":"ALICE@EXAMPLE.COM"}}}
+MagicMap.fromJsonString('{"a": 1}');    // root must be an object
+MagicList.fromJsonString('[1, 2]');     // root must be an array
 ```
 
-#### `MagicMap.fromJsonString(String jsonString)`
-Create from JSON string (static method).
+`toJsonString` accepts two optional callbacks:
+
+- `replacer` mirrors the replacer of JavaScript's `JSON.stringify`. It is
+  called top-down for every key/value pair (list indices are passed as
+  strings, the root as `''`) and its return value is what gets encoded.
+  Return `MagicMap.omit` to drop a map entry; an omitted list element encodes
+  as `null`.
+- `toEncodable` is forwarded to `JsonEncoder` for values that JSON cannot
+  represent, such as `DateTime`.
 
 ```dart
-final jsonMap = MagicMap.fromJsonString('''
-{
-  "system": {
-    "version": "1.0.0",
-    "config": {
-      "darkMode": true
-    }
-  }
-}
-''');
-
-print(jsonMap.getPath('system.config.darkMode')); // Output: true
-print(jsonMap.system.version); // Output: 1.0.0 (with dynamic access)
+map.toJsonString(
+  replacer: (key, value) {
+    if (key == 'password') return MagicMap.omit;
+    return value is String ? value.toUpperCase() : value;
+  },
+  toEncodable: (v) => v is DateTime ? v.toIso8601String() : v,
+);
 ```
 
-### Method Comparison Table
+Invalid JSON or a root of the wrong type throws `MagicMapException`.
 
-| Method | Use Case | Returns | Mutates Original |
-|--------|----------|---------|------------------|
-| `getPath()` | Safe nested access | The value or default | No |
-| `set()` | Deep value updates | void | Yes |
-| `getWithGlob()` | Pattern matching | List<dynamic> | No |
-| `setImmutable()` | Functional updates | New MagicMap | No |
-| `toJsonString()` | Serialization | String | No |
-| `fromJsonString()` | Deserialization | MagicMap | N/A |
+## Equality and printing
 
-These methods provide comprehensive tools for working with complex nested data structures while supporting both mutable and immutable patterns.
+Two views are `==` when they wrap the same underlying collection, so
+`d.user == d.user` is `true`. Two separately constructed maps with the same
+content are not equal; compare `raw` for structural checks. `toString()`
+prints like the plain collection would.
+
+## Method summary
+
+| Method                         | Returns              | Mutates |
+| ------------------------------ | -------------------- | ------- |
+| `getPath(path, [default])`     | value or view        | no      |
+| `hasPath(path)`                | `bool`               | no      |
+| `set(path, value)`             | `void`               | yes     |
+| `removePath(path)`             | removed value        | yes     |
+| `getWithGlob(pattern)`         | `List<dynamic>`      | no      |
+| `setImmutable(path, value)`    | new copy             | no      |
+| `clone()`                      | new copy             | no      |
+| `raw` / `toJson()`             | live underlying data | no      |
+| `toJsonString(...)`            | `String`             | no      |
+| `MagicMap.fromJsonString(s)`   | `MagicMap`           | n/a     |
+| `MagicList.fromJsonString(s)`  | `MagicList`          | n/a     |
