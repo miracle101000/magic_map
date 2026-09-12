@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.1] - 2026-09-12
+
+### Changed
+
+- README: new "Plain maps and lists" subsection explaining
+  `getAs<Map<String, dynamic>>` (returns the live underlying map), why a
+  narrower value type such as `Map<String, int>` needs `getMapOf`, and why
+  `getAs<List>` returns the `MagicList` view. Docs only, no code changes.
+
+---
+
 ## [2.1.0] - 2026-09-12
 
 ### Added
