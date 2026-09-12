@@ -1,6 +1,6 @@
 name: magic_map
 description: Path-based, typed access to nested Dart maps and lists - safe deep reads, deep writes, glob queries, immutable updates and JSON helpers, plus optional dot access.
-version: 2.1.2
+version: 2.1.3
 homepage: https://github.com/miracle101000/magic_map
 repository: https://github.com/miracle101000/magic_map
 topics:
