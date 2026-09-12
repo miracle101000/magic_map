@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:magic_map/magic_map.dart';
 
 Map<String, dynamic> sample() => {
@@ -231,9 +231,7 @@ void main() {
 
     test('supports escaped dots and brackets in keys', () {
       final map = MagicMap({
-        'a.b': {
-          'c[0]': 'v',
-        },
+        'a.b': {'c[0]': 'v'},
       });
       expect(map.getPath(r'a\.b.c\[0]'), 'v');
     });
@@ -419,7 +417,10 @@ void main() {
     test('matches a whole segment with *', () {
       expect(map.getWithGlob('user.*.name'), ['Alice']);
       expect(map.getWithGlob('user.hobbies.*'), ['reading', 'traveling']);
-      expect(map.getWithGlob('company.departments.*.manager'), ['Bob', 'Carol']);
+      expect(map.getWithGlob('company.departments.*.manager'), [
+        'Bob',
+        'Carol',
+      ]);
     });
 
     test('supports [*] and explicit indices', () {
@@ -520,7 +521,10 @@ void main() {
     test('works with jsonEncode directly', () {
       final map = MagicMap(sample());
       expect(jsonEncode(map), jsonEncode(sample()));
-      expect(jsonEncode(map.getPath('user.hobbies')), '["reading","traveling"]');
+      expect(
+        jsonEncode(map.getPath('user.hobbies')),
+        '["reading","traveling"]',
+      );
     });
 
     test('applies a JS-style replacer', () {
@@ -566,7 +570,10 @@ void main() {
 
     test('toEncodable handles non-JSON values', () {
       final map = MagicMap({'when': DateTime.utc(2020, 1, 2)});
-      expect(() => map.toJsonString(), throwsA(isA<JsonUnsupportedObjectError>()));
+      expect(
+        () => map.toJsonString(),
+        throwsA(isA<JsonUnsupportedObjectError>()),
+      );
       expect(
         map.toJsonString(
           toEncodable: (v) => v is DateTime ? v.toIso8601String() : v,
@@ -769,6 +776,351 @@ void main() {
       expect(a.hashCode, b.hashCode);
       // Structurally equal, but different underlying lists.
       expect(MagicList([1]) == MagicList([1]), isFalse);
+    });
+  });
+
+  group('typed access', () {
+    const json = '''
+    {
+      "server": {
+        "port": 8080, "host": "localhost", "ratio": 1, "big": 1e20,
+        "started": "2024-05-01T10:00:00Z", "debug": "true",
+        "retries": "3", "timeout": "2.5", "whole": 3.0, "frac": 3.5
+      },
+      "tags": ["a", "b"],
+      "mixed": ["a", 1, null],
+      "limits": {"cpu": 2, "mem": 512},
+      "users": [{"name": "Bob"}, {"name": "Carol"}],
+      "nothing": null
+    }
+    ''';
+    late MagicMap config;
+    setUp(() => config = MagicMap.fromJsonString(json));
+
+    group('getAs', () {
+      test('returns exact matches and null otherwise', () {
+        expect(config.getAs<int>('server.port'), 8080);
+        expect(config.getAs<String>('server.host'), 'localhost');
+        expect(config.getAs<String>('server.port'), isNull);
+        expect(config.getAs<int>('missing'), isNull);
+        expect(config.getAs<int>('nothing'), isNull);
+        expect(config.getAs<int>('server.port.deeper'), isNull);
+      });
+
+      test('combines with ?? for a typed default', () {
+        final port = config.getAs<int>('server.port') ?? 8080;
+        final other = config.getAs<int>('server.other') ?? 9090;
+        expect(port + other, 17170);
+      });
+
+      test('returns views for containers and raw collections on request', () {
+        final server = config.getAs<MagicMap>('server');
+        expect(server, isNotNull);
+        server!.set('port', 1);
+        expect(config.getPath('server.port'), 1);
+        expect(config.getAs<MagicList>('tags'), ['a', 'b']);
+        expect(config.getAs<List>('tags'), isA<MagicList>());
+        expect(
+          config.getAs<Map<String, dynamic>>('server'),
+          same(config.raw['server']),
+        );
+        // A MagicList already is a List<dynamic>, so the view is returned.
+        final asList = config.getAs<List<dynamic>>('tags');
+        expect(asList, isA<MagicList>());
+        expect((asList as MagicList).raw, same(config.raw['tags']));
+        expect(config.getAs<Map<String, int>>('limits'), isNull);
+        expect(config.getAs<List<String>>('tags'), isNull);
+      });
+
+      test('widens int to double and narrows whole doubles to int', () {
+        expect(config.getAs<double>('server.ratio'), 1.0);
+        expect(config.getAs<double>('server.ratio'), isA<double>());
+        expect(config.getAs<int>('server.whole'), 3);
+        expect(config.getAs<int>('server.whole'), isA<int>());
+        expect(config.getAs<int>('server.frac'), isNull);
+        expect(config.getAs<num>('server.frac'), 3.5);
+      });
+
+      test('rejects doubles outside int range and non-finite values', () {
+        expect(config.getAs<int>('server.big'), isNull);
+        config.set('inf', double.infinity);
+        config.set('nan', double.nan);
+        expect(config.getAs<int>('inf'), isNull);
+        expect(config.getAs<int>('nan'), isNull);
+        expect(config.getAs<double>('inf'), double.infinity);
+      });
+
+      test('parses ISO-8601 strings into DateTime', () {
+        expect(
+          config.getAs<DateTime>('server.started'),
+          DateTime.utc(2024, 5, 1, 10),
+        );
+        expect(config.getAs<DateTime>('server.host'), isNull);
+        expect(config.getAs<DateTime>('server.port'), isNull);
+        expect(config.getAs<String>('server.started'), '2024-05-01T10:00:00Z');
+      });
+
+      test('does not parse numbers or booleans out of strings by default', () {
+        expect(config.getAs<int>('server.retries'), isNull);
+        expect(config.getAs<bool>('server.debug'), isNull);
+      });
+
+      test('parses strings when asked', () {
+        expect(config.getAs<int>('server.retries', parseStrings: true), 3);
+        expect(config.getAs<double>('server.retries', parseStrings: true), 3.0);
+        expect(config.getAs<double>('server.timeout', parseStrings: true), 2.5);
+        expect(config.getAs<int>('server.timeout', parseStrings: true), isNull);
+        expect(config.getAs<num>('server.timeout', parseStrings: true), 2.5);
+        expect(config.getAs<bool>('server.debug', parseStrings: true), isTrue);
+        config.set('flag', ' FALSE ');
+        expect(config.getAs<bool>('flag', parseStrings: true), isFalse);
+        expect(config.getAs<bool>('server.host', parseStrings: true), isNull);
+        expect(config.getAs<int>('server.host', parseStrings: true), isNull);
+      });
+
+      test('supports nullable type arguments', () {
+        expect(config.getAs<int?>('server.port'), 8080);
+        expect(config.getAs<int?>('nothing'), isNull);
+        expect(config.getAs<double?>('server.ratio'), 1.0);
+      });
+
+      test('works on nested views and on MagicList', () {
+        final server = config.getPath('server') as MagicMap;
+        expect(server.getAs<int>('port'), 8080);
+        final users = config.getPath('users') as MagicList;
+        expect(users.getAs<String>('1.name'), 'Carol');
+        expect(users.getAs<MagicMap>('[0]')!.getAs<String>('name'), 'Bob');
+      });
+    });
+
+    group('requireAs', () {
+      test('returns converted values', () {
+        expect(config.requireAs<int>('server.port'), 8080);
+        expect(config.requireAs<double>('server.port'), 8080.0);
+        expect(config.requireAs<MagicMap>('server'), isA<MagicMap>());
+      });
+
+      test('throws for a missing path with the path in the message', () {
+        expect(
+          () => config.requireAs<int>('server.missing'),
+          throwsA(
+            isA<MagicMapException>()
+                .having((e) => e.path, 'path', 'server.missing')
+                .having((e) => e.message, 'message', contains('No value')),
+          ),
+        );
+      });
+
+      test('throws for null unless T is nullable', () {
+        expect(
+          () => config.requireAs<int>('nothing'),
+          throwsA(
+            isA<MagicMapException>().having(
+              (e) => e.message,
+              'message',
+              contains('null'),
+            ),
+          ),
+        );
+        expect(config.requireAs<int?>('nothing'), isNull);
+      });
+
+      test('throws for a wrong type naming both types', () {
+        expect(
+          () => config.requireAs<int>('server.host'),
+          throwsA(
+            isA<MagicMapException>()
+                .having((e) => e.message, 'message', contains('Expected int'))
+                .having((e) => e.message, 'message', contains('String'))
+                .having((e) => e.message, 'message', contains('localhost'))
+                .having((e) => e.path, 'path', 'server.host'),
+          ),
+        );
+        expect(
+          () => config.requireAs<int>('server'),
+          throwsA(
+            isA<MagicMapException>().having(
+              (e) => e.message,
+              'message',
+              contains('MagicMap'),
+            ),
+          ),
+        );
+      });
+
+      test('truncates long values in the message', () {
+        config.set('long', 'x' * 500);
+        expect(
+          () => config.requireAs<int>('long'),
+          throwsA(
+            isA<MagicMapException>().having(
+              (e) => e.message.length,
+              'message length',
+              lessThan(120),
+            ),
+          ),
+        );
+      });
+
+      test('honours parseStrings', () {
+        expect(
+          () => config.requireAs<int>('server.retries'),
+          throwsA(isA<MagicMapException>()),
+        );
+        expect(config.requireAs<int>('server.retries', parseStrings: true), 3);
+      });
+    });
+
+    group('getListOf', () {
+      test('rebuilds the list with the requested element type', () {
+        final tags = config.getListOf<String>('tags');
+        expect(tags, ['a', 'b']);
+        expect(tags, isA<List<String>>());
+        // The motivating failure: the decoded list has the wrong reified type.
+        expect(
+          () => config.getPath('tags') as List<String>,
+          throwsA(isA<TypeError>()),
+        );
+      });
+
+      test('returns null for missing, non-list and unconvertible content', () {
+        expect(config.getListOf<String>('missing'), isNull);
+        expect(config.getListOf<String>('server'), isNull);
+        expect(config.getListOf<String>('nothing'), isNull);
+        expect(config.getListOf<int>('tags'), isNull);
+        expect(config.getListOf<String>('mixed'), isNull);
+      });
+
+      test('skipInvalid drops bad elements', () {
+        expect(config.getListOf<String>('mixed', skipInvalid: true), ['a']);
+        expect(config.getListOf<int>('mixed', skipInvalid: true), [1]);
+      });
+
+      test('nullable T keeps null elements', () {
+        expect(config.getListOf<String?>('mixed', skipInvalid: true), [
+          'a',
+          null,
+        ]);
+        expect(config.getListOf<Object?>('mixed'), ['a', 1, null]);
+      });
+
+      test('applies conversions and parseStrings per element', () {
+        config.set('nums', [1, 2.0, '3']);
+        expect(config.getListOf<double>('nums'), isNull);
+        expect(config.getListOf<double>('nums', parseStrings: true), [
+          1.0,
+          2.0,
+          3.0,
+        ]);
+        expect(config.getListOf<int>('nums', parseStrings: true), [1, 2, 3]);
+      });
+
+      test('returns writable views for map elements', () {
+        final users = config.getListOf<MagicMap>('users')!;
+        users[1].set('name', 'Dave');
+        expect(config.getPath('users.1.name'), 'Dave');
+        final rawUsers = config.getListOf<Map<String, dynamic>>('users')!;
+        expect(rawUsers[0], same(config.raw['users'][0]));
+      });
+
+      test('the returned list is detached from the data', () {
+        final tags = config.getListOf<String>('tags')!;
+        tags.add('c');
+        expect(config.getPath('tags'), ['a', 'b']);
+      });
+
+      test('works on MagicList', () {
+        final users = config.getPath('users') as MagicList;
+        expect(users.getListOf<MagicMap>('')!.length, 2);
+        expect(MagicList([1, 2]).getListOf<double>(''), [1.0, 2.0]);
+      });
+    });
+
+    group('getMapOf', () {
+      test('rebuilds the map with the requested value type', () {
+        final limits = config.getMapOf<int>('limits');
+        expect(limits, {'cpu': 2, 'mem': 512});
+        expect(limits, isA<Map<String, int>>());
+        expect(config.getMapOf<double>('limits'), {'cpu': 2.0, 'mem': 512.0});
+      });
+
+      test('returns null for missing, non-map and unconvertible content', () {
+        expect(config.getMapOf<int>('missing'), isNull);
+        expect(config.getMapOf<int>('tags'), isNull);
+        expect(config.getMapOf<int>('server'), isNull);
+      });
+
+      test('skipInvalid keeps the convertible entries', () {
+        expect(config.getMapOf<int>('server', skipInvalid: true), {
+          'port': 8080,
+          'ratio': 1,
+          'whole': 3,
+        });
+        expect(
+          config.getMapOf<int>('server', skipInvalid: true, parseStrings: true),
+          {'port': 8080, 'ratio': 1, 'retries': 3, 'whole': 3},
+        );
+      });
+
+      test('returns views for nested maps and is detached from the data', () {
+        config.set('groups', {
+          'a': {'n': 1},
+          'b': {'n': 2},
+        });
+        final groups = config.getMapOf<MagicMap>('groups')!;
+        groups['a']!.set('n', 10);
+        expect(config.getPath('groups.a.n'), 10);
+        groups.remove('b');
+        expect(config.hasPath('groups.b'), isTrue);
+      });
+    });
+  });
+
+  group('view constructors', () {
+    test('MagicMap.view wraps without copying', () {
+      final data =
+          jsonDecode('{"user": {"tags": ["a"]}}') as Map<String, dynamic>;
+      final map = MagicMap.view(data);
+      map.set('user.tags[1]', 'b');
+      (map as dynamic).user.name = 'Alice';
+      expect(data['user']['tags'], ['a', 'b']);
+      expect(data['user']['name'], 'Alice');
+      expect(map.raw, same(data));
+    });
+
+    test('MagicList.view wraps without copying', () {
+      final data = <dynamic>[
+        1,
+        {'a': 1},
+      ];
+      final list = MagicList.view(data);
+      list.add(3);
+      list.set('1.a', 2);
+      expect(data, [
+        1,
+        {'a': 2},
+        3,
+      ]);
+      expect(list.raw, same(data));
+    });
+
+    test('a narrowly typed nested container throws on a mismatched write', () {
+      final data = <String, dynamic>{
+        'user': <String, String>{'name': 'Alice'},
+      };
+      final map = MagicMap.view(data);
+      expect(map.getPath('user.name'), 'Alice');
+      map.set('user.name', 'Bob'); // same type, fine
+      expect(() => map.set('user.age', 30), throwsA(isA<TypeError>()));
+    });
+
+    test('the copying constructor is immune to that', () {
+      final data = <String, dynamic>{
+        'user': <String, String>{'name': 'Alice'},
+      };
+      final map = MagicMap(data);
+      map.set('user.age', 30);
+      expect(map.getPath('user.age'), 30);
     });
   });
 }

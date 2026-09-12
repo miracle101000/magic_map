@@ -1,5 +1,3 @@
-// ignore_for_file: avoid_print
-
 import 'dart:convert';
 
 import 'package:magic_map/magic_map.dart';
@@ -56,6 +54,20 @@ void main() {
   print(map2.getPath('user.hobbies[1]')); // hiking
   print(map2.getPath('user.phone', 'N/A')); // N/A
   print(map2.hasPath('user.phone')); // false
+
+  // Typed reads. getListOf rebuilds the list, so this is a real List<String>
+  // rather than a List<dynamic> that would fail a cast.
+  final age = map2.getAs<int>('user.age') ?? 0; // 30
+  final name = map2.requireAs<String>('user.name'); // Alice
+  final hobbies = map2.getListOf<String>('user.hobbies') ?? const [];
+  print('$name, $age, ${hobbies.join('/')}'); // Alice, 30, reading/hiking
+  print(map2.getAs<double>('user.age')); // 30.0 (int widens to double)
+  print(map2.getAs<int>('user.name')); // null (wrong type, no throw)
+  try {
+    map2.requireAs<int>('user.name');
+  } on MagicMapException catch (e) {
+    print(e); // Expected int but found String (Alice) (at path: user.name)
+  }
 
   map2.set('user.phone', '123-456-7890');
   map2.set('user.hobbies.2', 'chess'); // index == length appends

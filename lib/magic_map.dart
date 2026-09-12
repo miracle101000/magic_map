@@ -1,4 +1,4 @@
-/// JavaScript-style dot access for deeply nested maps and lists.
+/// Path-based and typed access to deeply nested maps and lists.
 ///
 /// The two public types are [MagicMap] (wraps a `Map<String, dynamic>`) and
 /// [MagicList] (wraps a `List<dynamic>`). Both are *views* over plain Dart
@@ -7,11 +7,14 @@
 ///
 /// ```dart
 /// final data = MagicMap({'user': {'name': 'Alice', 'tags': ['a', 'b']}});
-/// final d = data as dynamic;
-/// print(d.user.name);          // Alice
-/// d.user.tags[1] = 'z';        // writes through
-/// print(data.getPath('user.tags.1')); // z
+/// final name = data.requireAs<String>('user.name');       // Alice
+/// final tags = data.getListOf<String>('user.tags') ?? []; // List<String>
+/// data.set('user.tags[1]', 'z');                          // writes through
+/// print(data.getPath('user.tags.1'));                     // z
 /// ```
+///
+/// Casting a [MagicMap] to `dynamic` additionally enables JavaScript-style
+/// dot access (`d.user.name`).
 library;
 
 import 'dart:collection';
@@ -138,7 +141,8 @@ String _formatPath(List<Object> segments) {
 }
 
 /// The map key a segment denotes (`[3]` on a map means the key `'3'`).
-String _asKey(Object segment) => segment is int ? '$segment' : segment as String;
+String _asKey(Object segment) =>
+    segment is int ? '$segment' : segment as String;
 
 /// The list index a segment denotes, or `null` if it is not a plain integer.
 int? _asIndex(Object segment) {
@@ -326,6 +330,82 @@ dynamic _wrap(Object? value) {
 }
 
 // ---------------------------------------------------------------------------
+// Typed conversion
+// ---------------------------------------------------------------------------
+
+/// Whether a value of static type [X] is assignable to [T].
+bool _assignable<X, T>() => <X>[] is List<T>;
+
+/// Converts an already-wrapped, non-null [value] to [T].
+///
+/// Returns `null` when no conversion applies. Because [value] is never null,
+/// a `null` result always means failure.
+T? _coerce<T>(Object value, {required bool parseStrings}) {
+  if (value is T) return value as T;
+
+  // The plain collection behind a view, when that is what was asked for.
+  if (value is MagicMap) {
+    final raw = value._map;
+    return raw is T ? raw as T : null;
+  }
+  // A MagicList already is a List<dynamic>, so it was handled above.
+
+  // JSON has a single number type and Dart has two: widen int to double, and
+  // narrow a double that is exactly a whole number within int range.
+  if (value is int) {
+    final widened = value.toDouble();
+    return widened is T ? widened as T : null;
+  }
+  if (value is double) {
+    if (value.isFinite) {
+      final narrowed = value.toInt();
+      // The round trip rejects fractions and doubles too large for an int
+      // (toInt clamps silently on the VM).
+      if (narrowed.toDouble() == value && narrowed is T) return narrowed as T;
+    }
+    return null;
+  }
+
+  if (value is String) {
+    // JSON has no date type, so dates always arrive as strings.
+    if (_assignable<DateTime, T>()) {
+      final date = DateTime.tryParse(value);
+      if (date != null) return date as T;
+    }
+    if (parseStrings) {
+      final text = value.trim();
+      final number = num.tryParse(text);
+      if (number != null) {
+        final converted = _coerce<T>(number, parseStrings: false);
+        if (converted != null) return converted;
+      }
+      final lower = text.toLowerCase();
+      if (lower == 'true' && true is T) return true as T;
+      if (lower == 'false' && false is T) return false as T;
+    }
+  }
+  return null;
+}
+
+/// Converts a raw stored [value] (possibly `null`) to [T], or returns
+/// [_missing] when that is not possible. A `null` value is accepted only when
+/// [T] is nullable.
+Object? _convert<T>(Object? value, bool parseStrings) {
+  if (value == null) return null is T ? null : _missing;
+  return _coerce<T>(_wrap(value), parseStrings: parseStrings) ?? _missing;
+}
+
+/// Describes a raw value for error messages: its wrapped type plus a short
+/// preview of its contents.
+String _describe(Object? value) {
+  if (value == null) return 'null';
+  final wrapped = _wrap(value);
+  final text = '$wrapped';
+  final preview = text.length > 60 ? '${text.substring(0, 57)}...' : text;
+  return '${wrapped.runtimeType} ($preview)';
+}
+
+// ---------------------------------------------------------------------------
 // Glob matching
 // ---------------------------------------------------------------------------
 
@@ -497,6 +577,107 @@ mixin _PathOps {
   bool hasPath(String path) =>
       !identical(_rawGet(_root, _parsePath(path)), _missing);
 
+  /// Returns the value at [path] as [T], or `null` when the path is missing,
+  /// holds `null`, or holds a value that cannot be converted to [T].
+  ///
+  /// ```dart
+  /// final port = config.getAs<int>('server.port') ?? 8080;
+  /// final user = config.getAs<MagicMap>('user'); // a writable view
+  /// ```
+  ///
+  /// Besides an exact type match, a few conversions apply because JSON has
+  /// one number type and no date type: `int` to `double`, a whole `double`
+  /// to `int`, an ISO-8601 `String` to `DateTime`, and a [MagicMap] view to
+  /// its plain `Map<String, dynamic>` (a [MagicList] already is a
+  /// `List<dynamic>`, so `getAs<List>` returns the view). With
+  /// [parseStrings] set, `int`, `double`, `num` and `bool` are also parsed
+  /// out of strings; that is off by default because silent coercion hides
+  /// upstream bugs.
+  ///
+  /// To get a `List<String>` or `Map<String, int>` use [getListOf] and
+  /// [getMapOf]; a decoded collection has the wrong reified type for a cast.
+  T? getAs<T>(String path, {bool parseStrings = false}) {
+    final found = _rawGet(_root, _parsePath(path));
+    if (identical(found, _missing)) return null;
+    final converted = _convert<T>(found, parseStrings);
+    return identical(converted, _missing) ? null : converted as T;
+  }
+
+  /// Like [getAs] but throws [MagicMapException] instead of returning
+  /// `null`, naming the path and the actual type in the message.
+  ///
+  /// Use it at trust boundaries, such as reading a config file at startup,
+  /// where a missing or mistyped field is a bug to report at the point of
+  /// failure rather than a case to paper over with a default. A `null`
+  /// value is accepted only when [T] is nullable.
+  T requireAs<T>(String path, {bool parseStrings = false}) {
+    final found = _rawGet(_root, _parsePath(path));
+    if (identical(found, _missing)) {
+      throw MagicMapException('No value at path', path);
+    }
+    final converted = _convert<T>(found, parseStrings);
+    if (identical(converted, _missing)) {
+      throw MagicMapException(
+        'Expected $T but found ${_describe(found)}',
+        path,
+      );
+    }
+    return converted as T;
+  }
+
+  /// Returns the list at [path] rebuilt as a `List<T>`, converting each
+  /// element like [getAs].
+  ///
+  /// Returns `null` when the path is missing, does not hold a list, or has
+  /// an element that cannot be converted; pass [skipInvalid] to drop such
+  /// elements instead. `null` elements are kept only when [T] is nullable.
+  /// The returned list is a new list, not a view; asking for [MagicMap]
+  /// elements gives writable views over the stored maps.
+  ///
+  /// This exists because `jsonDecode` produces `List<dynamic>`, so
+  /// `getPath('tags') as List<String>` throws at runtime even when every
+  /// element is a `String`.
+  List<T>? getListOf<T>(
+    String path, {
+    bool skipInvalid = false,
+    bool parseStrings = false,
+  }) {
+    final found = _rawGet(_root, _parsePath(path));
+    if (found is! List) return null;
+    final out = <T>[];
+    for (final element in found) {
+      final converted = _convert<T>(element, parseStrings);
+      if (identical(converted, _missing)) {
+        if (skipInvalid) continue;
+        return null;
+      }
+      out.add(converted as T);
+    }
+    return out;
+  }
+
+  /// Returns the map at [path] rebuilt as a `Map<String, V>`, converting
+  /// each value like [getAs]. Behaves like [getListOf] for missing paths,
+  /// non-map values and values that cannot be converted.
+  Map<String, V>? getMapOf<V>(
+    String path, {
+    bool skipInvalid = false,
+    bool parseStrings = false,
+  }) {
+    final found = _rawGet(_root, _parsePath(path));
+    if (found is! Map) return null;
+    final out = <String, V>{};
+    for (final entry in found.entries) {
+      final converted = _convert<V>(entry.value, parseStrings);
+      if (identical(converted, _missing)) {
+        if (skipInvalid) continue;
+        return null;
+      }
+      out['${entry.key}'] = converted as V;
+    }
+    return out;
+  }
+
   /// Stores [value] at [path], creating intermediate containers as needed.
   ///
   /// A missing intermediate becomes a list when the following segment is an
@@ -591,6 +772,17 @@ class MagicMap with _PathOps {
     );
   }
 
+  /// Wraps [map] directly, without copying it.
+  ///
+  /// Use this to skip the deep copy the default constructor performs, for
+  /// example on a large decoded response you already own. Writes through the
+  /// view go into [map] itself. The map, and every map and list nested in
+  /// it, must be a `Map<String, dynamic>` or `List<dynamic>`; a narrowly
+  /// typed container such as `Map<String, String>` throws a `TypeError`
+  /// when a value of another type is written into it. The output of
+  /// `jsonDecode` satisfies this requirement.
+  factory MagicMap.view(Map<String, dynamic> map) = MagicMap._view;
+
   /// Decodes [jsonString], which must contain a JSON object at its root.
   ///
   /// Throws [MagicMapException] if the text is not valid JSON or the root is
@@ -641,7 +833,8 @@ class MagicMap with _PathOps {
     final name = _symbolName(invocation.memberName);
     if (invocation.isGetter) return _wrap(_map[name]);
     if (invocation.isSetter) {
-      final key = name.endsWith('=') ? name.substring(0, name.length - 1) : name;
+      final key =
+          name.endsWith('=') ? name.substring(0, name.length - 1) : name;
       _map[key] = _normalize(invocation.positionalArguments.first);
       return null;
     }
@@ -692,6 +885,10 @@ class MagicList extends ListBase<dynamic> with _PathOps {
             : items.toList();
     return MagicList._view(_normalize(source) as List<dynamic>);
   }
+
+  /// Wraps [list] directly, without copying it. See [MagicMap.view] for the
+  /// requirements on nested containers.
+  factory MagicList.view(List<dynamic> list) = MagicList._view;
 
   /// Decodes [jsonString], which must contain a JSON array at its root.
   ///

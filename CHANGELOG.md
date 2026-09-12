@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.0] - 2026-09-12
+
+### Added
+
+- Typed accessors on `MagicMap` and `MagicList`, available on nested views
+  too: `getAs<T>()`, `requireAs<T>()`, `getListOf<T>()` and `getMapOf<V>()`.
+  The collection variants rebuild the list or map with the requested element
+  type, so `getListOf<String>('tags')` returns a real `List<String>` where a
+  cast of the decoded `List<dynamic>` would throw. `int` widens to `double`,
+  a whole `double` narrows to `int`, ISO-8601 strings convert to `DateTime`,
+  and a `MagicMap` view converts to its plain `Map<String, dynamic>`.
+  Parsing numbers and booleans
+  out of strings is opt-in via `parseStrings: true`. `requireAs` throws a
+  `MagicMapException` that names the path and the actual type.
+- `MagicMap.view()` and `MagicList.view()` wrap an existing collection
+  without copying it, for large data you already own.
+- `topics` in the pubspec.
+
+### Changed
+
+- The package no longer depends on the Flutter SDK. It is a pure Dart
+  package usable from server, CLI and Flutter projects alike. Dev
+  dependencies moved from `flutter_test` / `flutter_lints` to `test` /
+  `lints`. Nothing changes for existing Flutter users.
+- README leads with typed and path-based access and states what the package
+  is for: data whose shape you do not control.
+- Clarified in the 2.0.0 notes that `==` and `hashCode` use the identity of
+  the underlying collection, not its contents.
+
+---
+
 ## [2.0.1] - 2026-09-06
 
 ### Changed
@@ -60,8 +91,9 @@ through to it. Most of the previously documented behaviour now actually works.
 - `set()` creates intermediate lists for integer segments and appends when
   the index equals the list length.
 - Cyclic input is rejected with `MagicMapException` instead of hanging.
-- `==` and `hashCode` compare the underlying collection, so two views over
-  the same data are equal.
+- `==` and `hashCode` are based on the identity of the underlying
+  collection, so two views over the same data are equal and a view is safe
+  to use as a map key.
 - A test suite (`flutter test`) covering the public API.
 
 ### Changed (breaking)

@@ -1,23 +1,38 @@
 # magic_map
 
-Safe, path-based access to nested Dart maps and lists. Read deep values
-with a default, write deep values without building the intermediate
-containers yourself, query with glob patterns, make immutable updates, and
-round-trip JSON. Think lodash `get` / `set` for Dart.
+Safe, path-based, typed access to nested Dart maps and lists. Read deep
+values with a default or a required type, write deep values without building
+the intermediate containers yourself, query with glob patterns, make
+immutable updates, and round-trip JSON. Think lodash `get` / `set` for Dart,
+with the type checks you would otherwise write by hand.
+
+Pure Dart with no dependencies, so it works in Flutter, server, and CLI
+projects alike.
 
 ```dart
 final config = MagicMap.fromJsonString(jsonText);
 
-config.getPath('server.port', 8080);            // value or default, never throws
-config.getPath('users[0].email', 'unknown');    // list indices in dot or bracket form
-config.set('server.tls.cert', '/etc/cert.pem'); // creates 'tls' on the way
-config.set('users[2].name', 'Carol');           // appends a new user map
-config.getWithGlob('features.*.enabled');       // every feature's flag
-config.hasPath('server.tls');                   // true
+final port = config.getAs<int>('server.port') ?? 8080;          // typed, never throws
+final host = config.requireAs<String>('server.host');           // throws, naming the path
+final tags = config.getListOf<String>('user.tags') ?? const []; // a real List<String>
+
+config.getPath('users[0].email', 'unknown');      // untyped, with a default
+config.set('server.tls.cert', '/etc/cert.pem');   // creates 'tls' on the way
+config.set('users[2].name', 'Carol');             // appends a new user map
+config.getWithGlob('features.*.enabled');         // every feature's flag
 
 final next = config.setImmutable('server.port', 9090); // config unchanged
 print(next.toJsonString(indent: 2));
 ```
+
+## When to use it
+
+`magic_map` is for data whose shape you do not control or cannot model up
+front: remote config, feature flags, third-party API responses, Firestore
+documents, JSON you are still exploring. When the schema is fixed and yours,
+generated models with `json_serializable` or `freezed` give you more safety
+and are the idiomatic choice. The two combine well: use `magic_map` to reach
+into the loosely typed corners of an otherwise typed model.
 
 ## How it works
 
@@ -27,6 +42,8 @@ and `List<dynamic>` objects.
 - The constructor **deep-copies** its input into plain containers and converts
   keys to strings. The map you pass in is never modified, and writes never
   fail with type errors no matter how narrowly the original literal was typed.
+  For large data you already own, `MagicMap.view()` skips the copy; see
+  [Views without copying](#views-without-copying).
 - Reading a nested map or list returns another view over the **same** data,
   so every method below works at any depth.
 - Every write goes straight to the underlying collection. `raw` returns that
@@ -116,6 +133,53 @@ final updated = map
     .setImmutable('user.profile.age', 32);
 ```
 
+## Typed access
+
+`getPath` returns `dynamic`. The typed accessors check the type for you and
+rebuild lists and maps with the element type you ask for. All four take the
+same path syntax and are available on nested views.
+
+| Method                 | Returns           | When missing or wrong type                                   |
+| ---------------------- | ----------------- | ------------------------------------------------------------ |
+| `getAs<T>(path)`       | `T?`              | `null`                                                       |
+| `requireAs<T>(path)`   | `T`               | throws `MagicMapException` naming the path and actual type   |
+| `getListOf<T>(path)`   | `List<T>?`        | `null`, or drop bad elements with `skipInvalid: true`        |
+| `getMapOf<V>(path)`    | `Map<String, V>?` | same as `getListOf`                                          |
+
+```dart
+final port   = config.getAs<int>('server.port') ?? 8080;
+final host   = config.requireAs<String>('server.host');
+final tags   = config.getListOf<String>('user.tags') ?? const [];
+final limits = config.getMapOf<int>('limits') ?? const {};
+final users  = config.getListOf<MagicMap>('users');   // writable views
+final when   = config.getAs<DateTime>('created_at'); // from an ISO-8601 string
+```
+
+`getListOf` exists because `jsonDecode` produces `List<dynamic>`, so
+`getPath('user.tags') as List<String>` throws at runtime even when every
+element is a `String`. The list has to be rebuilt, and that belongs in the
+library rather than at every call site. `getMapOf` solves the same problem
+for `Map<String, int>` and friends.
+
+Conversions applied by all four, on by default because JSON has one number
+type and no date type:
+
+- `int` to `double`
+- a whole `double` to `int` (`3.0` becomes `3`; `3.5` and out-of-range values
+  do not convert)
+- an ISO-8601 `String` to `DateTime`
+- `MagicMap` to `Map<String, dynamic>` when you ask for the plain map type.
+  A `MagicList` already is a `List<dynamic>`, so `getAs<List>` returns the
+  view; use `.raw` on it for the plain list.
+
+Opt in with `parseStrings: true` for sources that hand you `"8080"` or
+`"true"`; it adds `String` to `int`, `double`, `num` and `bool`. It is off
+by default because silent coercion hides upstream bugs.
+
+Use `requireAs` at trust boundaries, such as parsing a config file at
+startup, and `getAs` when rendering data you do not control. A `null` value
+satisfies `requireAs` only when `T` is nullable.
+
 ## JSON
 
 ```dart
@@ -163,8 +227,27 @@ hobbies[0] = 'reading';
 for (final h in hobbies) { /* ... */ }
 ```
 
-`MagicList` has the same path methods as `MagicMap`, so
-`list.getPath('0.name')` and `list.getWithGlob('*.id')` work.
+`MagicList` has the same path and typed methods as `MagicMap`, so
+`list.getPath('0.name')`, `list.getListOf<int>('')` and
+`list.getWithGlob('*.id')` work.
+
+## Views without copying
+
+The default constructor copies its input, which is O(n) and is what makes
+writes safe. When that cost matters, for example on a large decoded response
+you already own, `MagicMap.view()` and `MagicList.view()` wrap the
+collection directly. Writes go into your original object.
+
+```dart
+final data = jsonDecode(body) as Map<String, dynamic>;
+final map = MagicMap.view(data); // no copy; map.raw is data
+```
+
+The requirement is that the collection, and every map and list nested in it,
+is a `Map<String, dynamic>` or `List<dynamic>`. A narrowly typed container
+such as `Map<String, String>` throws a `TypeError` when a value of another
+type is written into it. The output of `jsonDecode` satisfies the
+requirement; hand-written literals often do not.
 
 ## Bonus: dynamic dot access
 
@@ -184,13 +267,13 @@ d.user.tags = [...?d.user.tags, 'c'];
 
 Be aware of the trade-offs before using it in application code:
 
-- The `dynamic` cast gives up autocomplete and static checking. The path API
-  above needs no cast.
+- The `dynamic` cast gives up autocomplete and static checking. The path and
+  typed APIs above need no cast.
 - A missing key reads as `null`, so `d.missing.deeper` throws just like
-  JavaScript would. Use `getPath` when the shape is uncertain.
+  JavaScript would. Use `getPath` or `getAs` when the shape is uncertain.
 - Member names that exist on `MagicMap` itself (`raw`, `set`, `getPath`,
-  `clone`, `toJson`, ...) cannot be read with dot syntax. Use `d['set']` or
-  `getPath('set')` for such keys.
+  `getAs`, `clone`, `toJson`, ...) cannot be read with dot syntax. Use
+  `d['set']` or `getPath('set')` for such keys.
 - Dot access relies on `noSuchMethod`, which needs symbol names at runtime.
   It works on the Dart VM and Flutter mobile/desktop. In minified web builds
   symbol names may be mangled; prefer the path API there.
@@ -198,9 +281,11 @@ Be aware of the trade-offs before using it in application code:
 ## Equality and printing
 
 Two views are `==` when they wrap the same underlying collection, so
-`map.getPath('user') == map.getPath('user')` is `true`. Two separately
-constructed maps with the same content are not equal; compare `raw` for
-structural checks. `toString()` prints like the plain collection would.
+`map.getPath('user') == map.getPath('user')` is `true`, and `hashCode`
+follows the same identity, which makes a view safe to use as a map key. Two
+separately constructed maps with the same content are not equal; compare
+`raw` for structural checks. `toString()` prints like the plain collection
+would.
 
 ## Method summary
 
@@ -208,6 +293,10 @@ structural checks. `toString()` prints like the plain collection would.
 | ------------------------------ | -------------------- | ------- |
 | `getPath(path, [default])`     | value or view        | no      |
 | `hasPath(path)`                | `bool`               | no      |
+| `getAs<T>(path)`               | `T?`                 | no      |
+| `requireAs<T>(path)`           | `T` or throws        | no      |
+| `getListOf<T>(path)`           | `List<T>?`           | no      |
+| `getMapOf<V>(path)`            | `Map<String, V>?`    | no      |
 | `set(path, value)`             | `void`               | yes     |
 | `removePath(path)`             | removed value        | yes     |
 | `getWithGlob(pattern)`         | `List<dynamic>`      | no      |
@@ -217,3 +306,5 @@ structural checks. `toString()` prints like the plain collection would.
 | `toJsonString(...)`            | `String`             | no      |
 | `MagicMap.fromJsonString(s)`   | `MagicMap`           | n/a     |
 | `MagicList.fromJsonString(s)`  | `MagicList`          | n/a     |
+| `MagicMap.view(map)`           | view, no copy        | n/a     |
+| `MagicList.view(list)`         | view, no copy        | n/a     |
