@@ -29,6 +29,33 @@ final next = config.setImmutable('server.port', 9090); // config unchanged
 print(next.toJsonString(indent: 2));
 ```
 
+## Contents
+
+- [When to use it](#when-to-use-it)
+- [How it works](#how-it-works)
+- [Paths](#paths)
+  - [getPath](#getpath)
+  - [hasPath](#haspath)
+  - [set](#set)
+  - [removePath](#removepath)
+  - [getWithGlob](#getwithglob)
+  - [setImmutable and clone](#setimmutable-and-clone)
+- [Typed access](#typed-access)
+  - [getAs](#getas)
+  - [requireAs](#requireas)
+  - [getListOf](#getlistof)
+  - [getMapOf](#getmapof)
+  - [Conversions](#conversions)
+  - [Plain maps and lists](#plain-maps-and-lists)
+- [JSON](#json)
+  - [toJsonString](#tojsonstring)
+  - [fromJsonString](#fromjsonstring)
+- [Lists](#lists)
+- [Views without copying](#views-without-copying)
+- [Bonus: dynamic dot access](#bonus-dynamic-dot-access)
+- [Equality and printing](#equality-and-printing)
+- [Method summary](#method-summary)
+
 ## When to use it
 
 `magic_map` is for data whose shape you do not control or cannot model up
@@ -62,7 +89,11 @@ Paths use dot notation with optional bracket indices. `user.tags.0`,
 literal dot or bracket inside a key with a backslash: `r'a\.b'`. On a map, a
 numeric segment is a key; on a list it is an index.
 
-### `getPath(String path, [dynamic defaultValue])`
+### getPath
+
+```dart
+dynamic getPath(String path, [dynamic defaultValue])
+```
 
 Returns the value at `path`, or `defaultValue` when the path does not exist
 or holds `null`. Maps and lists come back as `MagicMap` / `MagicList` views.
@@ -75,11 +106,19 @@ map.getPath('user.contact.email', 'N/A');    // N/A
 map.getPath('user.profile').set('age', 31);  // views are writable
 ```
 
-### `hasPath(String path)`
+### hasPath
+
+```dart
+bool hasPath(String path)
+```
 
 `true` when the path exists, even if its value is `null`.
 
-### `set(String path, dynamic value)`
+### set
+
+```dart
+void set(String path, dynamic value)
+```
 
 Stores `value`, creating intermediate containers as needed. A missing
 intermediate becomes a list when the next segment is an integer, otherwise a
@@ -100,12 +139,20 @@ It throws `MagicMapException` instead of corrupting data when:
 - the path tries to descend into a scalar (for example `user.name.first`
   when `user.name` is a `String`).
 
-### `removePath(String path)`
+### removePath
+
+```dart
+dynamic removePath(String path)
+```
 
 Removes the key or list item at `path` and returns it, or `null` if nothing
 was there.
 
-### `getWithGlob(String pattern)`
+### getWithGlob
+
+```dart
+List<dynamic> getWithGlob(String pattern)
+```
 
 Returns every value whose path matches the pattern, in traversal order.
 
@@ -125,7 +172,12 @@ map.getWithGlob('items[*].id');                      // [1, 2]
 map.getWithGlob('**.manager');                       // any depth
 ```
 
-### `setImmutable(String path, dynamic value)` and `clone()`
+### setImmutable and clone
+
+```dart
+MagicMap setImmutable(String path, dynamic value)
+MagicMap clone()
+```
 
 `clone()` returns an independent deep copy. `setImmutable` is
 `clone()..set(path, value)`: the original is untouched and the copy is
@@ -159,29 +211,95 @@ final users  = config.getListOf<MagicMap>('users');   // writable views
 final when   = config.getAs<DateTime>('created_at'); // from an ISO-8601 string
 ```
 
-`getListOf` exists because `jsonDecode` produces `List<dynamic>`, so
+Use `requireAs` at trust boundaries, such as parsing a config file at
+startup, and `getAs` when rendering data you do not control.
+
+### getAs
+
+```dart
+T? getAs<T>(String path, {bool parseStrings = false})
+```
+
+Returns the value at `path` as `T`, or `null` when the path is missing, holds
+`null`, or holds a value that cannot be converted to `T` (see
+[Conversions](#conversions)). Combine it with `??` for a typed default:
+
+```dart
+final port = config.getAs<int>('server.port') ?? 8080;   // int
+final user = config.getAs<MagicMap>('user');             // MagicMap?, a writable view
+```
+
+### requireAs
+
+```dart
+T requireAs<T>(String path, {bool parseStrings = false})
+```
+
+Like `getAs`, but throws `MagicMapException` instead of returning `null`.
+The message names the path and the actual type, so a missing or mistyped
+field is reported at the point of failure rather than papered over with a
+default. A `null` value satisfies it only when `T` is nullable.
+
+```dart
+final host = config.requireAs<String>('server.host');
+// MagicMapException: Expected String but found int (8080) (at path: server.host)
+```
+
+### getListOf
+
+```dart
+List<T>? getListOf<T>(String path, {bool skipInvalid = false, bool parseStrings = false})
+```
+
+Returns the list at `path` rebuilt as a `List<T>`, converting each element
+like `getAs`. It exists because `jsonDecode` produces `List<dynamic>`, so
 `getPath('user.tags') as List<String>` throws at runtime even when every
 element is a `String`. The list has to be rebuilt, and that belongs in the
-library rather than at every call site. `getMapOf` solves the same problem
-for `Map<String, int>` and friends.
+library rather than at every call site.
 
-Conversions applied by all four, on by default because JSON has one number
-type and no date type:
+- Returns `null` when the path is missing, does not hold a list, or has an
+  element that cannot be converted. Pass `skipInvalid: true` to drop such
+  elements instead.
+- `null` elements are kept only when `T` is nullable.
+- The result is a new list, not a view. Asking for `MagicMap` elements gives
+  writable views over the stored maps.
+
+```dart
+final tags  = config.getListOf<String>('user.tags') ?? const [];
+final users = config.getListOf<MagicMap>('users');          // List<MagicMap>?
+final ids   = config.getListOf<int>('ids', skipInvalid: true);
+```
+
+### getMapOf
+
+```dart
+Map<String, V>? getMapOf<V>(String path, {bool skipInvalid = false, bool parseStrings = false})
+```
+
+Returns the map at `path` rebuilt as a `Map<String, V>`, converting each
+value like `getAs`. It solves the same reified-type problem as `getListOf`
+for `Map<String, int>` and friends, and behaves the same way for missing
+paths, non-map values, `skipInvalid` and nullable `V`.
+
+```dart
+final limits = config.getMapOf<int>('limits') ?? const {};
+```
+
+### Conversions
+
+Applied by all four typed accessors, on by default because JSON has one
+number type and no date type:
 
 - `int` to `double`
 - a whole `double` to `int` (`3.0` becomes `3`; `3.5` and out-of-range values
   do not convert)
 - an ISO-8601 `String` to `DateTime`
 - a view to its plain collection when you ask for the plain type; see
-  [Plain maps and lists](#plain-maps-and-lists) below
+  [Plain maps and lists](#plain-maps-and-lists)
 
 Opt in with `parseStrings: true` for sources that hand you `"8080"` or
 `"true"`; it adds `String` to `int`, `double`, `num` and `bool`. It is off
 by default because silent coercion hides upstream bugs.
-
-Use `requireAs` at trust boundaries, such as parsing a config file at
-startup, and `getAs` when rendering data you do not control. A `null` value
-satisfies `requireAs` only when `T` is nullable.
 
 ### Plain maps and lists
 
@@ -210,16 +328,19 @@ final loose  = config.getAs<Map>('server');                  // supertypes work 
 
 ## JSON
 
+### toJsonString
+
+```dart
+String toJsonString({int indent = 0, JsonReplacer? replacer, Object? Function(Object?)? toEncodable})
+```
+
 ```dart
 map.toJsonString();                 // compact
 map.toJsonString(indent: 2);        // pretty printed
 jsonEncode(map);                    // also works: MagicMap/MagicList have toJson()
-
-MagicMap.fromJsonString('{"a": 1}');    // root must be an object
-MagicList.fromJsonString('[1, 2]');     // root must be an array
 ```
 
-`toJsonString` accepts two optional callbacks:
+Two optional callbacks:
 
 - `replacer` mirrors the replacer of JavaScript's `JSON.stringify`. It is
   called top-down for every key/value pair (list indices are passed as
@@ -237,6 +358,18 @@ map.toJsonString(
   },
   toEncodable: (v) => v is DateTime ? v.toIso8601String() : v,
 );
+```
+
+### fromJsonString
+
+```dart
+factory MagicMap.fromJsonString(String jsonString)
+factory MagicList.fromJsonString(String jsonString)
+```
+
+```dart
+MagicMap.fromJsonString('{"a": 1}');    // root must be an object
+MagicList.fromJsonString('[1, 2]');     // root must be an array
 ```
 
 Invalid JSON or a root of the wrong type throws `MagicMapException`.
