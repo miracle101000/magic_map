@@ -1,5 +1,9 @@
 # magic_map
 
+[![pub package](https://img.shields.io/pub/v/magic_map.svg)](https://pub.dev/packages/magic_map)
+[![pub points](https://img.shields.io/pub/points/magic_map)](https://pub.dev/packages/magic_map/score)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Safe, path-based, typed access to nested Dart maps and lists. Read deep
 values with a default or a required type, write deep values without building
 the intermediate containers yourself, query with glob patterns, make
