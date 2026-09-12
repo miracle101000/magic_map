@@ -55,6 +55,7 @@ print(next.toJsonString(indent: 2));
 - [Bonus: dynamic dot access](#bonus-dynamic-dot-access)
 - [Equality and printing](#equality-and-printing)
 - [Method summary](#method-summary)
+- [Author](#author)
 
 ## When to use it
 
@@ -469,3 +470,7 @@ would.
 | `MagicList.fromJsonString(s)`  | `MagicList`          | n/a     |
 | `MagicMap.view(map)`           | view, no copy        | n/a     |
 | `MagicList.view(list)`         | view, no copy        | n/a     |
+
+## Author
+
+Miracle Okolo · [GitHub](https://github.com/miracle101000) · [LinkedIn](https://www.linkedin.com/in/miracle-okolo-bb2133183/)
