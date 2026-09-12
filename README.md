@@ -172,9 +172,8 @@ type and no date type:
 - a whole `double` to `int` (`3.0` becomes `3`; `3.5` and out-of-range values
   do not convert)
 - an ISO-8601 `String` to `DateTime`
-- `MagicMap` to `Map<String, dynamic>` when you ask for the plain map type.
-  A `MagicList` already is a `List<dynamic>`, so `getAs<List>` returns the
-  view; use `.raw` on it for the plain list.
+- a view to its plain collection when you ask for the plain type; see
+  [Plain maps and lists](#plain-maps-and-lists) below
 
 Opt in with `parseStrings: true` for sources that hand you `"8080"` or
 `"true"`; it adds `String` to `int`, `double`, `num` and `bool`. It is off
@@ -183,6 +182,31 @@ by default because silent coercion hides upstream bugs.
 Use `requireAs` at trust boundaries, such as parsing a config file at
 startup, and `getAs` when rendering data you do not control. A `null` value
 satisfies `requireAs` only when `T` is nullable.
+
+### Plain maps and lists
+
+Asking for a plain collection type works too, for code that wants an
+ordinary `Map` or `List` rather than a view.
+
+```dart
+final server = config.getAs<Map<String, dynamic>>('server'); // Map<String, dynamic>?
+final strict = config.requireAs<Map<String, dynamic>>('server');
+final loose  = config.getAs<Map>('server');                  // supertypes work too
+```
+
+- **You get the live underlying map, not a copy.** A `MagicMap` is not
+  itself a `Map`, so when you ask for the plain type the accessor hands back
+  the exact object the view wraps. Writes to it show up in the `MagicMap`
+  and in `raw`.
+- **A narrower value type returns `null`.** `getAs<Map<String, int>>` cannot
+  succeed because the stored map's reified type is `Map<String, dynamic>`,
+  and no cast can change that. That case is what `getMapOf<int>` is for: it
+  rebuilds the map with the value type you ask for.
+- **Lists are the one asymmetry.** `getAs<List>` and `getAs<List<dynamic>>`
+  return the `MagicList` view, because the view already *is* a
+  `List<dynamic>`. Call `.raw` on it for the plain list, and use
+  `getListOf<T>` for a typed element type; `getAs<List<String>>` returns
+  `null` for the same reified-type reason as maps.
 
 ## JSON
 
