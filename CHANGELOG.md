@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.2] - 2026-09-12
+
+### Changed
+
+- README: added a table of contents, and retitled every method subsection
+  by bare method name with the signature in a code block beneath, so
+  in-page links are short and predictable on GitHub and pub.dev. Typed
+  access and JSON are split into per-method subsections. Docs only, no
+  code changes.
+
+---
+
 ## [2.1.1] - 2026-09-12
 
 ### Changed
